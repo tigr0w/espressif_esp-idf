@@ -12,9 +12,15 @@ menu "ESP-Driver:I2C Configurations"
         bool "Enable I2C debug log"
         default n
         help
-            Wether to enable the debug log message for I2C driver.
+            whether to enable the debug log message for I2C driver.
             Note that this option only controls the I2C driver log, will not affect other drivers.
 
             note: This cannot be used in the I2C legacy driver.
+
+    config I2C_ENABLE_SLAVE_DRIVER_VERSION_2
+        bool "Enable I2C slave driver version 2"
+        default n
+        help
+            I2C slave version 2 solves some existing known issues. Such as write/read workflow, stretch handling, etc.
 
 endmenu # I2C Configurations

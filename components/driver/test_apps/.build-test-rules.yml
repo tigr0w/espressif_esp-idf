@@ -13,26 +13,28 @@ components/driver/test_apps/i2s_test_apps/legacy_i2s_adc_dac:
 components/driver/test_apps/i2s_test_apps/legacy_i2s_driver:
   disable:
     - if: SOC_I2S_SUPPORTED != 1
-  disable_test:
-    - if: IDF_TARGET == "esp32p4"
-      temporary: true
-      reason: lack of runners
-
-components/driver/test_apps/ledc:
-  disable:
-    - if: SOC_LEDC_SUPPORTED != 1
 
 components/driver/test_apps/legacy_adc_driver:
   disable:
     - if: SOC_ADC_SUPPORTED != 1
+  disable_test:
+    - if: IDF_TARGET == "esp32c61"
+      temporary: true
+      reason: lack of runners
+  depends_components:
+    - efuse
+    - esp_driver_i2s
+    - esp_driver_spi
+  depends_filepatterns:
+    - components/driver/deprecated/**/*adc*
 
 components/driver/test_apps/legacy_i2c_driver:
+  disable:
+    - if: SOC_I2C_SUPPORTED != 1
   disable_test:
-    - if: IDF_TARGET == "esp32p4"
-      temporary: true
-      reason: lack of runner
-  depends_filepatterns:
-    - components/driver/i2c/**
+    - if: IDF_TARGET != "none"
+      temporary: false
+      reason: disable target test for legacy i2c driver.
 
 components/driver/test_apps/legacy_mcpwm_driver:
   disable:
@@ -70,14 +72,6 @@ components/driver/test_apps/legacy_timer_driver:
   depends_filepatterns:
     - components/driver/deprecated/**/*timer*
 
-components/driver/test_apps/parlio:
-  disable:
-    - if: SOC_PARLIO_SUPPORTED != 1
-  disable_test:
-    - if: IDF_TARGET == "esp32p4"
-      temporary: true
-      reason: lack of runner
-
 components/driver/test_apps/touch_sensor_v1:
   disable:
     - if: SOC_TOUCH_SENSOR_VERSION != 1
@@ -89,14 +83,7 @@ components/driver/test_apps/touch_sensor_v2:
 components/driver/test_apps/twai:
   disable:
     - if: SOC_TWAI_SUPPORTED != 1
-
-components/driver/test_apps/usb_serial_jtag:
-  disable:
-    - if: SOC_USB_SERIAL_JTAG_SUPPORTED != 1
   depends_filepatterns:
-    - components/driver/usb_serial_jtag/**/*
+    - components/driver/twai/**/*
   depends_components:
-    - hal
-    - esp_hw_support # for clock
-    - vfs
     - esp_driver_gpio

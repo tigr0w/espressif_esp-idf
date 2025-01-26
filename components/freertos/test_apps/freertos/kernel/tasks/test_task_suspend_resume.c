@@ -69,7 +69,6 @@ static void test_suspend_resume(int target_core)
     vTaskDelete(counter_task);
 }
 
-
 TEST_CASE("Suspend/resume task on same core", "[freertos]")
 {
     test_suspend_resume(UNITY_FREERTOS_CPU);
@@ -119,6 +118,7 @@ TEST_CASE("Suspend the current running task", "[freertos]")
     TEST_ASSERT_TRUE(resumed);
 }
 
+#if SOC_GPTIMER_SUPPORTED
 
 static volatile bool timer_isr_fired;
 static gptimer_handle_t gptimer = NULL;
@@ -145,7 +145,6 @@ static IRAM_ATTR void task_suspend_self_with_timer(void *vp_resumed)
     gptimer_get_raw_count(gptimer, (uint64_t *)resumed_counter);
     vTaskDelete(NULL);
 }
-
 
 /* Create a task which suspends itself, then resume it from a timer
  * interrupt. */
@@ -206,3 +205,5 @@ TEST_CASE("Resume task from ISR (other core)", "[freertos]")
     test_resume_task_from_isr(!UNITY_FREERTOS_CPU);
 }
 #endif // CONFIG_FREERTOS_UNICORE
+
+#endif //SOC_GPTIMER_SUPPORTED

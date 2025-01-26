@@ -8,7 +8,7 @@
 
 #include "esp_err.h"
 #include "ulp_riscv_register_ops.h"
-#include "hal/touch_sensor_types.h"
+#include "hal/touch_sensor_legacy_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,7 +82,6 @@ esp_err_t ulp_riscv_touch_pad_sleep_channel_read_benchmark(touch_pad_t touch_num
  * @return esp_err_t    ESP_OK when successful
  */
 esp_err_t ulp_riscv_touch_pad_sleep_channel_read_smooth(touch_pad_t touch_num, uint32_t *smooth_data);
-
 
 /**
  * @brief Reset benchmark of touch sensor sleep channel.

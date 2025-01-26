@@ -56,7 +56,7 @@ typedef enum {
     ETS_HP_APM_M3_INTR_SOURCE,
     ETS_LP_APM0_INTR_SOURCE,
     ETS_MSPI_INTR_SOURCE,
-    ETS_I2S1_INTR_SOURCE,                       /**< interrupt of I2S1, level*/
+    ETS_I2S0_INTR_SOURCE,                       /**< interrupt of I2S0, level*/
     ETS_UHCI0_INTR_SOURCE,                      /**< interrupt of UHCI0, level*/
     ETS_UART0_INTR_SOURCE,                      /**< interrupt of UART0, level*/
     ETS_UART1_INTR_SOURCE,                      /**< interrupt of UART1, level*/
@@ -79,7 +79,8 @@ typedef enum {
     ETS_SYSTIMER_TARGET1_EDGE_INTR_SOURCE = ETS_SYSTIMER_TARGET1_INTR_SOURCE, /**< use ETS_SYSTIMER_TARGET1_INTR_SOURCE */
     ETS_SYSTIMER_TARGET2_EDGE_INTR_SOURCE = ETS_SYSTIMER_TARGET2_INTR_SOURCE, /**< use ETS_SYSTIMER_TARGET2_INTR_SOURCE */
     ETS_APB_ADC_INTR_SOURCE = 60,               /**< interrupt of APB ADC, LEVEL*/
-    ETS_MCPWM0_INTR_SOURCE,                     /**< interrupt of MCPWM0, LEVEL*/
+    ETS_TEMPERATURE_SENSOR_INTR_SOURCE = ETS_APB_ADC_INTR_SOURCE,
+    ETS_MCPWM0_INTR_SOURCE = 61,                     /**< interrupt of MCPWM0, LEVEL*/
     ETS_PCNT_INTR_SOURCE,
     ETS_PARL_IO_INTR_SOURCE,
     ETS_SLC0_INTR_SOURCE,
@@ -96,7 +97,9 @@ typedef enum {
     ETS_RSA_INTR_SOURCE,                        /**< interrupt of RSA accelerator, level*/
     ETS_ECC_INTR_SOURCE,                        /**< interrupt of ECC accelerator, level*/
     ETS_MAX_INTR_SOURCE,
-} periph_interrput_t;
+} periph_interrupt_t;
+
+typedef periph_interrupt_t periph_interrput_t __attribute__((deprecated("in favor of periph_interrupt_t")));
 
 extern const char * const esp_isr_names[ETS_MAX_INTR_SOURCE];
 

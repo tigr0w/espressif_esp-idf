@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,6 +13,8 @@
 #include "hal/assert.h"
 #include "hal/misc.h"
 #include "hal/hal_utils.h"
+#include "hal/efuse_hal.h"
+#include "soc/chip_revision.h"
 #include "soc/pcr_struct.h"
 #include "soc/parl_io_struct.h"
 #include "hal/parlio_types.h"
@@ -40,12 +42,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef enum {
-    PARLIO_LL_CLK_SRC_XTAL = PARLIO_CLK_SRC_XTAL,
-    PARLIO_LL_CLK_SRC_PLL_F96M = PARLIO_CLK_SRC_PLL_F96M,
-    PARLIO_LL_CLK_SRC_PAD, // clock source from GPIO pad
-} parlio_ll_clock_source_t;
 
 typedef enum {
     PARLIO_LL_RX_EOF_COND_RX_FULL,     /*!< RX unit generates EOF event when it receives enough data */
@@ -84,18 +80,21 @@ static inline void parlio_ll_reset_register(int group_id)
  * @param dev Parallel IO register base address
  * @param src Clock source
  */
-static inline void parlio_ll_rx_set_clock_source(parl_io_dev_t *dev, parlio_ll_clock_source_t src)
+static inline void parlio_ll_rx_set_clock_source(parl_io_dev_t *dev, parlio_clock_source_t src)
 {
     (void)dev;
     uint32_t clk_sel = 0;
     switch (src) {
-    case PARLIO_LL_CLK_SRC_XTAL:
+    case PARLIO_CLK_SRC_XTAL:
         clk_sel = 0;
         break;
-    case PARLIO_LL_CLK_SRC_PLL_F96M:
+    case PARLIO_CLK_SRC_PLL_F96M:
         clk_sel = 1;
         break;
-    case PARLIO_LL_CLK_SRC_PAD:
+    case PARLIO_CLK_SRC_RC_FAST:
+        clk_sel = 2;
+        break;
+    case PARLIO_CLK_SRC_EXTERNAL:
         clk_sel = 3;
         break;
 
@@ -137,6 +136,7 @@ static inline void parlio_ll_rx_reset_clock(parl_io_dev_t *dev)
  * @param dev Parallel IO register base address
  * @param en True to enable, False to disable
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_enable_clock(parl_io_dev_t *dev, bool en)
 {
     (void)dev;
@@ -149,6 +149,7 @@ static inline void parlio_ll_rx_enable_clock(parl_io_dev_t *dev, bool en)
  * @param dev Parallel IO register base address
  * @param cond RX EOF condition
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_set_eof_condition(parl_io_dev_t *dev, parlio_ll_rx_eof_cond_t cond)
 {
     dev->rx_genrl_cfg.rx_eof_gen_sel = cond;
@@ -160,6 +161,7 @@ static inline void parlio_ll_rx_set_eof_condition(parl_io_dev_t *dev, parlio_ll_
  * @param dev Parallel IO register base address
  * @param en True to start, False to stop
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_start(parl_io_dev_t *dev, bool en)
 {
     dev->rx_start_cfg.rx_start = en;
@@ -173,6 +175,7 @@ static inline void parlio_ll_rx_start(parl_io_dev_t *dev, bool en)
  * @param dev Parallel IO register base address
  * @param bitlen Number of bits to receive in the next transaction, bitlen must be a multiple of 8
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_set_recv_bit_len(parl_io_dev_t *dev, uint32_t bitlen)
 {
     dev->rx_data_cfg.rx_bitlen = bitlen;
@@ -182,12 +185,13 @@ static inline void parlio_ll_rx_set_recv_bit_len(parl_io_dev_t *dev, uint32_t bi
  * @brief Set the sub mode of the level controlled receive mode
  *
  * @param dev Parallel IO register base address
- * @param active_level Level of the external enable signal, true for active high, false for active low
+ * @param active_low_en Level of the external enable signal, true for active low, false for active high
  */
-static inline void parlio_ll_rx_set_level_recv_mode(parl_io_dev_t *dev, bool active_level)
+__attribute__((always_inline))
+static inline void parlio_ll_rx_set_level_recv_mode(parl_io_dev_t *dev, bool active_low_en)
 {
     dev->rx_mode_cfg.rx_smp_mode_sel = 0;
-    dev->rx_mode_cfg.rx_ext_en_inv = !active_level; // 0: active low, 1: active high
+    dev->rx_mode_cfg.rx_ext_en_inv = active_low_en;
 }
 
 /**
@@ -199,6 +203,7 @@ static inline void parlio_ll_rx_set_level_recv_mode(parl_io_dev_t *dev, bool act
  * @param end_by_len Whether to use the frame length to determine the end of the frame
  * @param pulse_inv Whether the pulse is inverted
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_set_pulse_recv_mode(parl_io_dev_t *dev, bool start_inc, bool end_inc, bool end_by_len, bool pulse_inv)
 {
     uint32_t submode = 0;
@@ -224,6 +229,7 @@ static inline void parlio_ll_rx_set_pulse_recv_mode(parl_io_dev_t *dev, bool sta
  *
  * @param dev Parallel IO register base address
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_set_soft_recv_mode(parl_io_dev_t *dev)
 {
     dev->rx_mode_cfg.rx_smp_mode_sel = 2;
@@ -246,6 +252,7 @@ static inline void parlio_ll_rx_start_soft_recv(parl_io_dev_t *dev, bool en)
  * @param dev Parallel IO register base address
  * @param edge Sample clock edge
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_set_sample_clock_edge(parl_io_dev_t *dev, parlio_sample_edge_t edge)
 {
     dev->rx_clk_cfg.rx_clk_i_inv = edge;
@@ -258,6 +265,7 @@ static inline void parlio_ll_rx_set_sample_clock_edge(parl_io_dev_t *dev, parlio
  * @param dev Parallel IO register base address
  * @param order Packing order
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_set_bit_pack_order(parl_io_dev_t *dev, parlio_bit_pack_order_t order)
 {
     dev->rx_data_cfg.rx_data_order_inv = order;
@@ -313,13 +321,14 @@ static inline void parlio_ll_rx_reset_fifo(parl_io_dev_t *dev)
  * @param dev Parallel IO register base address
  * @param line_num Data line number (0-15)
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_treat_data_line_as_en(parl_io_dev_t *dev, uint32_t line_num)
 {
     dev->rx_mode_cfg.rx_ext_en_sel = line_num;
 }
 
 /**
- * @brief Wether to enable the RX clock gating
+ * @brief Whether to enable the RX clock gating
  *
  * @param dev Parallel IO register base address
  * @param en True to enable, False to disable
@@ -335,6 +344,7 @@ static inline void parlio_ll_rx_enable_clock_gating(parl_io_dev_t *dev, bool en)
  * @param dev Parallel IO register base address
  * @param en True to enable, False to disable
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_enable_timeout(parl_io_dev_t *dev, bool en)
 {
     dev->rx_genrl_cfg.rx_timeout_en = en;
@@ -346,6 +356,7 @@ static inline void parlio_ll_rx_enable_timeout(parl_io_dev_t *dev, bool en)
  * @param dev Parallel IO register base address
  * @param thres Threshold of RX timeout
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_set_timeout_thres(parl_io_dev_t *dev, uint32_t thres)
 {
     HAL_FORCE_MODIFY_U32_REG_FIELD(dev->rx_genrl_cfg, rx_timeout_thres, thres);
@@ -356,12 +367,29 @@ static inline void parlio_ll_rx_set_timeout_thres(parl_io_dev_t *dev, uint32_t t
  *
  * @param dev Parallel IO register base address
  */
+__attribute__((always_inline))
 static inline void parlio_ll_rx_update_config(parl_io_dev_t *dev)
 {
     dev->reg_update.rx_reg_update = 1;
     while (dev->reg_update.rx_reg_update);
 }
 
+/**
+ * @brief Get the RX fifo cycle count
+ *
+ * @param dev Parallel IO register base address
+ * @return
+ *        - RX fifo cycle count
+ */
+static inline uint32_t parlio_ll_rx_get_fifo_cycle_cnt(parl_io_dev_t *dev)
+{
+    if (ESP_CHIP_REV_ABOVE(efuse_hal_chip_revision(), 102)) {
+        return dev->rx_st0.rx_cnt;
+    }
+    /* For the H2 chip revision that smaller than v1.2, only the highest 4-bit are effective,
+     *  need to right shift 1 bit to get the actual count */
+    return dev->rx_st0.rx_cnt >> 1;
+}
 ///////////////////////////////////TX Unit///////////////////////////////////////
 
 /**
@@ -370,18 +398,22 @@ static inline void parlio_ll_rx_update_config(parl_io_dev_t *dev)
  * @param dev Parallel IO register base address
  * @param src Clock source
  */
-static inline void parlio_ll_tx_set_clock_source(parl_io_dev_t *dev, parlio_ll_clock_source_t src)
+__attribute__((always_inline))
+static inline void parlio_ll_tx_set_clock_source(parl_io_dev_t *dev, parlio_clock_source_t src)
 {
     (void)dev;
     uint32_t clk_sel = 0;
     switch (src) {
-    case PARLIO_LL_CLK_SRC_XTAL:
+    case PARLIO_CLK_SRC_XTAL:
         clk_sel = 0;
         break;
-    case PARLIO_LL_CLK_SRC_PLL_F96M:
+    case PARLIO_CLK_SRC_PLL_F96M:
         clk_sel = 1;
         break;
-    case PARLIO_LL_CLK_SRC_PAD:
+    case PARLIO_CLK_SRC_RC_FAST:
+        clk_sel = 2;
+        break;
+    case PARLIO_CLK_SRC_EXTERNAL:
         clk_sel = 3;
         break;
 
@@ -444,7 +476,7 @@ static inline void parlio_ll_tx_set_trans_bit_len(parl_io_dev_t *dev, uint32_t b
 }
 
 /**
- * @brief Wether to enable the TX clock gating
+ * @brief Whether to enable the TX clock gating
  *
  * @note The MSB of TXD will be taken as the gating enable signal
  *
@@ -459,8 +491,11 @@ static inline void parlio_ll_tx_enable_clock_gating(parl_io_dev_t *dev, bool en)
 /**
  * @brief Start TX unit to transmit data
  *
+ * @note The hardware monitors the rising edge of tx_start as the trigger signal.
+ *       Once the transmission starts, it cannot be stopped by clearing tx_start.
+ *
  * @param dev Parallel IO register base address
- * @param en True to start, False to stop
+ * @param en True to start, False to reset the reg state (not meaning the TX unit will be stopped)
  */
 __attribute__((always_inline))
 static inline void parlio_ll_tx_start(parl_io_dev_t *dev, bool en)
@@ -558,7 +593,7 @@ static inline void parlio_ll_tx_reset_fifo(parl_io_dev_t *dev)
 __attribute__((always_inline))
 static inline void parlio_ll_tx_set_idle_data_value(parl_io_dev_t *dev, uint32_t value)
 {
-    dev->tx_genrl_cfg.tx_idle_value = value;
+    HAL_FORCE_MODIFY_U32_REG_FIELD(dev->tx_genrl_cfg, tx_idle_value, value);
 }
 
 /**

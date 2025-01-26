@@ -10,33 +10,25 @@ set(srcs)
 # Always included headers
 set(includes "deprecated"
              "i2c/include"
-             "ledc/include"
-             "parlio/include"
              "touch_sensor/include"
-             "twai/include"
-             "usb_serial_jtag/include")
+             "twai/include")
 
 # Always included linker fragments
 set(ldfragments "")
 
-# ADC related source files (dprecated)
+# ADC related source files (deprecated)
 if(CONFIG_SOC_ADC_SUPPORTED)
     list(APPEND srcs "deprecated/adc_legacy.c")
-endif()
 
-if(CONFIG_SOC_ADC_DMA_SUPPORTED)
-    list(APPEND srcs "deprecated/adc_dma_legacy.c")
+    if(CONFIG_SOC_ADC_DMA_SUPPORTED)
+        list(APPEND srcs "deprecated/adc_dma_legacy.c")
+    endif()
 endif()
 
 # DAC related source files
 if(CONFIG_SOC_DAC_SUPPORTED)
     list(APPEND srcs "deprecated/dac_common_legacy.c"
                      "deprecated/${target}/dac_legacy.c")
-endif()
-
-# Parallel IO related source files
-if(CONFIG_SOC_PARLIO_SUPPORTED)
-    list(APPEND srcs "parlio/parlio_common.c" "parlio/parlio_tx.c")
 endif()
 
 # GPTimer legacy driver
@@ -52,13 +44,6 @@ endif()
 # I2S related source files
 if(CONFIG_SOC_I2S_SUPPORTED)
     list(APPEND srcs "deprecated/i2s_legacy.c")
-endif()
-
-# LEDC related source files
-if(CONFIG_SOC_LEDC_SUPPORTED)
-    list(APPEND srcs "ledc/ledc.c")
-
-    list(APPEND ldfragments "ledc/linker.lf")
 endif()
 
 # MCPWM legacy driver
@@ -88,9 +73,11 @@ endif()
 
 # Touch Sensor related source files
 if(CONFIG_SOC_TOUCH_SENSOR_SUPPORTED)
-    list(APPEND srcs "touch_sensor/touch_sensor_common.c"
-                     "touch_sensor/${target}/touch_sensor.c")
-    list(APPEND includes "touch_sensor/${target}/include")
+    if(CONFIG_SOC_TOUCH_SENSOR_VERSION LESS 3)
+        list(APPEND srcs "touch_sensor/touch_sensor_common.c"
+                        "touch_sensor/${target}/touch_sensor.c")
+        list(APPEND includes "touch_sensor/${target}/include")
+    endif()
 endif()
 
 # TWAI related source files
@@ -98,12 +85,6 @@ if(CONFIG_SOC_TWAI_SUPPORTED)
     list(APPEND srcs "twai/twai.c")
 
     list(APPEND ldfragments "twai/linker.lf")
-endif()
-
-# USB Serial JTAG related source files
-if(CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED)
-    list(APPEND srcs "usb_serial_jtag/usb_serial_jtag.c"
-                     "usb_serial_jtag/usb_serial_jtag_connection_monitor.c")
 endif()
 
 # Other source files
@@ -127,14 +108,12 @@ else()
                                     esp_driver_gpio esp_driver_pcnt esp_driver_gptimer esp_driver_spi esp_driver_mcpwm
                                     esp_driver_ana_cmpr esp_driver_i2s esp_driver_sdmmc esp_driver_sdspi esp_driver_sdio
                                     esp_driver_dac esp_driver_rmt esp_driver_tsens esp_driver_sdm esp_driver_i2c
-                                    esp_driver_uart
+                                    esp_driver_uart esp_driver_ledc esp_driver_parlio esp_driver_usb_serial_jtag
                            LDFRAGMENTS ${ldfragments}
                           )
-endif()
-
-# If system needs to monitor USJ connection status, then usb_serial_jtag_connection_monitor object file has to be linked
-# to the binary, to allow tick hook to be registered
-if(CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION OR
-   (CONFIG_SOC_USB_SERIAL_JTAG_SUPPORT_LIGHT_SLEEP AND CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED))
-    target_link_libraries(${COMPONENT_LIB} INTERFACE "-u usb_serial_jtag_connection_monitor_include")
+    if(CONFIG_SOC_ADC_SUPPORTED AND
+       CONFIG_COMPILER_STATIC_ANALYZER AND CMAKE_C_COMPILER_ID STREQUAL "GNU") # TODO GCC-366
+        set_source_files_properties(deprecated/adc_legacy.c
+                                    PROPERTIES COMPILE_FLAGS "-Wno-analyzer-use-of-uninitialized-value")
+    endif()
 endif()

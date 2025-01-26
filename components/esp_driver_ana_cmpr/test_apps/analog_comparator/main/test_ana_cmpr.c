@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -50,18 +50,17 @@ TEST_CASE("ana_cmpr_unit_install_uninstall", "[ana_cmpr]")
 
 TEST_CASE("ana_cmpr_internal_reference", "[ana_cmpr]")
 {
-    int src_chan = test_init_src_chan_gpio();
-
     uint32_t cnt = 0;
     ana_cmpr_handle_t cmpr = NULL;
     ana_cmpr_config_t config = {
-        .unit = 0,
+        .unit = TEST_ANA_CMPR_UNIT_ID,
         .clk_src = ANA_CMPR_CLK_SRC_DEFAULT,
         .ref_src = ANA_CMPR_REF_SRC_INTERNAL,
         .cross_type = ANA_CMPR_CROSS_ANY,
         .flags.io_loop_back = 1,
     };
     TEST_ESP_OK(ana_cmpr_new_unit(&config, &cmpr));
+    int src_chan = test_init_src_chan_gpio(TEST_ANA_CMPR_UNIT_ID);
     ana_cmpr_internal_ref_config_t ref_cfg = {
         .ref_volt = ANA_CMPR_REF_VOLT_50_PCT_VDD,
     };
@@ -77,10 +76,10 @@ TEST_CASE("ana_cmpr_internal_reference", "[ana_cmpr]")
     TEST_ESP_OK(ana_cmpr_register_event_callbacks(cmpr, &cbs, &cnt));
     TEST_ESP_OK(ana_cmpr_enable(cmpr));
     cnt = 0;
-    for (int i = 1; i <= 10; i++) {
+    for (uint32_t i = 1; i <= 10; i++) {
         test_simulate_src_signal(src_chan, i % 2);
         esp_rom_delay_us(100);
-        TEST_ASSERT(cnt == i);
+        TEST_ASSERT_EQUAL_UINT32(i, cnt);
     }
     TEST_ESP_OK(ana_cmpr_disable(cmpr));
     TEST_ESP_OK(ana_cmpr_del_unit(cmpr));

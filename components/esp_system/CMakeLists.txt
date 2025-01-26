@@ -1,12 +1,15 @@
 idf_build_get_property(target IDF_TARGET)
+idf_build_get_property(esp_tee_build ESP_TEE_BUILD)
 
 # On Linux, we only support a few features, hence this simple component registration
 if(${target} STREQUAL "linux")
     idf_component_register(SRCS "esp_system.c"
+                        "esp_err.c"
                         "port/soc/linux/reset_reason.c"
                         "port/soc/linux/system_internal.c"
                         "port/esp_system_linux.c"
-                        INCLUDE_DIRS "include")
+                        INCLUDE_DIRS "include"
+                        PRIV_REQUIRES spi_flash)
     return()
 endif()
 
@@ -20,7 +23,7 @@ if(CONFIG_IDF_ENV_FPGA OR CONFIG_ESP_BRINGUP_BYPASS_RANDOM_SETTING)
     list(APPEND srcs "fpga_overrides_rng.c")
 endif()
 
-if(BOOTLOADER_BUILD)
+if(BOOTLOADER_BUILD OR esp_tee_build)
         # "_esp_error_check_failed()" requires spi_flash module
         # Bootloader relies on some Kconfig options defined in esp_system.
         idf_component_register(SRCS "${srcs}" REQUIRES spi_flash)
@@ -37,8 +40,7 @@ else()
             "system_time.c"
             "stack_check.c"
             "ubsan.c"
-            "xt_wdt.c"
-            "debug_stubs.c")
+            "xt_wdt.c")
 
     if(CONFIG_ESP_TASK_WDT_EN)
         list(APPEND srcs "task_wdt/task_wdt.c")
@@ -52,6 +54,10 @@ else()
 
     if(CONFIG_ESP_SYSTEM_USE_EH_FRAME)
         list(APPEND srcs "eh_frame_parser.c")
+    endif()
+
+    if(CONFIG_ESP_SYSTEM_USE_FRAME_POINTER)
+        list(APPEND srcs "fp_unwind.c")
     endif()
 
     if(CONFIG_SOC_SYSTIMER_SUPPORT_ETM)
@@ -68,9 +74,7 @@ else()
                                     # [refactor-todo] requirements due to init code,
                                     # should be removable once using component init functions
                                     # link-time registration is used.
-                                    # [refactor-todo] esp_partition required for virtual efuse
-                                    # init code. Move to esp_efuse component.
-                                    pthread bootloader_support efuse esp_partition esp_pm
+                                    bootloader_support esp_pm
                         LDFRAGMENTS "linker.lf" "app.lf")
     add_subdirectory(port)
 
@@ -86,7 +90,7 @@ else()
 
     # Disable stack protection in files which are involved in initialization of that feature
     set_source_files_properties(
-        "startup.c" "stack_check.c"
+        "startup.c" "stack_check.c" "port/cpu_start.c"
         PROPERTIES COMPILE_FLAGS
         -fno-stack-protector)
 
@@ -143,4 +147,12 @@ if(NOT BOOTLOADER_BUILD)
     if(CONFIG_SPIRAM)
         idf_component_optional_requires(PRIVATE esp_psram)
     endif()
+endif()
+
+if(CONFIG_SOC_MEM_NON_CONTIGUOUS_SRAM)
+    target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--enable-non-contiguous-regions")
+endif()
+
+if(CONFIG_ESP_DEBUG_INCLUDE_OCD_STUB_BINS)
+    add_subdirectory(openocd_stub_bins)
 endif()

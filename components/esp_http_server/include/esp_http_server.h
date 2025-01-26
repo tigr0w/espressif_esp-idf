@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2018-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -85,7 +85,7 @@ initializer that should be kept in sync
 #define ESP_ERR_HTTPD_INVALID_REQ       (ESP_ERR_HTTPD_BASE +  3)   /*!< Invalid request pointer */
 #define ESP_ERR_HTTPD_RESULT_TRUNC      (ESP_ERR_HTTPD_BASE +  4)   /*!< Result string truncated */
 #define ESP_ERR_HTTPD_RESP_HDR          (ESP_ERR_HTTPD_BASE +  5)   /*!< Response header field larger than supported */
-#define ESP_ERR_HTTPD_RESP_SEND         (ESP_ERR_HTTPD_BASE +  6)   /*!< Error occured while sending response packet */
+#define ESP_ERR_HTTPD_RESP_SEND         (ESP_ERR_HTTPD_BASE +  6)   /*!< Error occurred while sending response packet */
 #define ESP_ERR_HTTPD_ALLOC_MEM         (ESP_ERR_HTTPD_BASE +  7)   /*!< Failed to dynamically allocate memory for resource */
 #define ESP_ERR_HTTPD_TASK              (ESP_ERR_HTTPD_BASE +  8)   /*!< Failed to launch server task/thread */
 
@@ -111,6 +111,8 @@ typedef void* httpd_handle_t;
  *          available in "http_parser" library
  */
 typedef enum http_method httpd_method_t;
+
+#define HTTP_ANY INT_MAX
 
 /**
  * @brief  Prototype for freeing context data (if any)
@@ -367,7 +369,7 @@ esp_err_t httpd_stop(httpd_handle_t handle);
  */
 typedef struct httpd_req {
     httpd_handle_t  handle;                     /*!< Handle to server instance */
-    int             method;                     /*!< The type of HTTP request, -1 if unsupported method */
+    int             method;                     /*!< The type of HTTP request, -1 if unsupported method, HTTP_ANY for wildcard method to support every method */
     const char      uri[HTTPD_MAX_URI_LEN + 1]; /*!< The URI of this request (1 byte extra for null termination) */
     size_t          content_len;                /*!< Length of the request body */
     void           *aux;                        /*!< Internally used members */
@@ -423,7 +425,7 @@ typedef struct httpd_req {
  */
 typedef struct httpd_uri {
     const char       *uri;    /*!< The URI to handle */
-    httpd_method_t    method; /*!< Method supported by the URI */
+    httpd_method_t    method; /*!< Method supported by the URI, HTTP_ANY for wildcard method to support all methods*/
 
     /**
      * Handler to call for supported request method. This must
@@ -485,7 +487,7 @@ typedef struct httpd_uri {
  * // URI handler structure
  * httpd_uri_t my_uri {
  *     .uri      = "/my_uri/path/xyz",
- *     .method   = HTTPD_GET,
+ *     .method   = HTTP_GET,
  *     .handler  = my_uri_handler,
  *     .user_ctx = NULL
  * };
@@ -567,7 +569,7 @@ typedef enum {
      */
     HTTPD_501_METHOD_NOT_IMPLEMENTED,
 
-    /* When HTTP version is not 1.1 */
+    /* When HTTP version is not 1.1 or 1.0*/
     HTTPD_505_VERSION_NOT_SUPPORTED,
 
     /* Returned when http_parser halts parsing due to incorrect
@@ -605,6 +607,9 @@ typedef enum {
      * callback for chunked request returns "400 Bad Request"
      */
     HTTPD_411_LENGTH_REQUIRED,
+
+    /* Incoming payload is too large */
+    HTTPD_413_CONTENT_TOO_LARGE,
 
     /* URI length greater than CONFIG_HTTPD_MAX_URI_LEN */
     HTTPD_414_URI_TOO_LONG,
@@ -959,7 +964,7 @@ esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *r, const char *field, char *v
  *
  * @return
  *  - Length    : Query is found in the request URL
- *  - Zero      : Query not found / Null arguments / Invalid request
+ *  - Zero      : Query not found / Null arguments / Invalid request / uri is empty
  */
 size_t httpd_req_get_url_query_len(httpd_req_t *r);
 
@@ -987,6 +992,7 @@ size_t httpd_req_get_url_query_len(httpd_req_t *r);
  *
  * @return
  *  - ESP_OK : Query is found in the request URL and copied to buffer
+ *  - ESP_FAIL                   : uri is empty
  *  - ESP_ERR_NOT_FOUND          : Query not found
  *  - ESP_ERR_INVALID_ARG        : Null arguments
  *  - ESP_ERR_HTTPD_INVALID_REQ  : Invalid HTTP request pointer
@@ -1026,7 +1032,7 @@ esp_err_t httpd_query_key_value(const char *qry, const char *key, char *val, siz
  * @param[in]       cookie_name     The cookie name to be searched in the request
  * @param[out]      val             Pointer to the buffer into which the value of cookie will be copied if the cookie is found
  * @param[inout]    val_size        Pointer to size of the user buffer "val". This variable will contain cookie length if
- *                                  ESP_OK is returned and required buffer length incase ESP_ERR_HTTPD_RESULT_TRUNC is returned.
+ *                                  ESP_OK is returned and required buffer length in case ESP_ERR_HTTPD_RESULT_TRUNC is returned.
  *
  * @return
  *  - ESP_OK : Key is found in the cookie string and copied to buffer
@@ -1040,17 +1046,17 @@ esp_err_t httpd_req_get_cookie_val(httpd_req_t *req, const char *cookie_name, ch
 /**
  * @brief Test if a URI matches the given wildcard template.
  *
- * Template may end with "?" to make the previous character optional (typically a slash),
- * "*" for a wildcard match, and "?*" to make the previous character optional, and if present,
+ * Template may end with '?' to make the previous character optional (typically a slash),
+ * '*' for a wildcard match, and '?*' to make the previous character optional, and if present,
  * allow anything to follow.
  *
  * Example:
  *   - * matches everything
- *   - /foo/? matches /foo and /foo/
- *   - /foo/\* (sans the backslash) matches /foo/ and /foo/bar, but not /foo or /fo
- *   - /foo/?* or /foo/\*?  (sans the backslash) matches /foo/, /foo/bar, and also /foo, but not /foox or /fo
+ *   - /api/? matches /api and /api/
+ *   - /api/\* (sans the backslash) matches /api/ and /api/status, but not /api or /ap
+ *   - /api/?* or /api/\*?  (sans the backslash) matches /api/, /api/status, and also /api, but not /apix or /ap
  *
- * The special characters "?" and "*" anywhere else in the template will be taken literally.
+ * The special characters '?' and '*' anywhere else in the template will be taken literally.
  *
  * @param[in] uri_template   URI template (pattern)
  * @param[in] uri_to_match   URI to be matched
@@ -1294,6 +1300,30 @@ esp_err_t httpd_resp_set_hdr(httpd_req_t *r, const char *field, const char *valu
 esp_err_t httpd_resp_send_err(httpd_req_t *req, httpd_err_code_t error, const char *msg);
 
 /**
+ * @brief   For sending out custom error code in response to HTTP request.
+ *
+ * @note
+ *  - This API is supposed to be called only from the context of
+ *    a URI handler where httpd_req_t* request pointer is valid.
+ *  - Once this API is called, all request headers are purged, so
+ *    request headers need be copied into separate buffers if
+ *    they are required later.
+ *  - If you wish to send additional data in the body of the
+ *    response, please use the lower-level functions directly.
+ *
+ * @param[in] req     Pointer to the HTTP request for which the response needs to be sent
+ * @param[in] status  Error status to send
+ * @param[in] msg     Error message string
+ *
+ * @return
+ *  - ESP_OK : On successfully sending the response packet
+ *  - ESP_ERR_INVALID_ARG : Null arguments
+ *  - ESP_ERR_HTTPD_RESP_SEND   : Error in raw send
+ *  - ESP_ERR_HTTPD_INVALID_REQ : Invalid request pointer
+ */
+esp_err_t httpd_resp_send_custom_err(httpd_req_t *req, const char *status, const char *msg);
+
+/**
  * @brief   Helper function for HTTP 404
  *
  * Send HTTP 404 message. If you wish to send additional data in the body of the
@@ -1374,7 +1404,7 @@ static inline esp_err_t httpd_resp_send_500(httpd_req_t *r) {
  * Call this API if you wish to construct your custom response packet.
  * When using this, all essential header, eg. HTTP version, Status Code,
  * Content Type and Length, Encoding, etc. will have to be constructed
- * manually, and HTTP delimeters (CRLF) will need to be placed correctly
+ * manually, and HTTP delimiters (CRLF) will need to be placed correctly
  * for separating sub-sections of the HTTP response packet.
  *
  * If the send override function is set, this API will end up

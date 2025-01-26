@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <string.h>
 #include "sdkconfig.h"
+#include "esp_macros.h"
 #include "esp_system.h"
 #include "esp_private/system_internal.h"
 #include "esp_attr.h"
@@ -27,18 +28,47 @@
 #include "soc/hp_sys_clkrst_reg.h"
 #include "soc/lp_clkrst_reg.h"
 #include "soc/hp_system_reg.h"
+#include "hal/gdma_ll.h"
+#include "hal/axi_dma_ll.h"
+#include "hal/dw_gdma_ll.h"
+#include "hal/dma2d_ll.h"
 
 void IRAM_ATTR esp_system_reset_modules_on_exit(void)
 {
     // Flush any data left in UART FIFOs
     for (int i = 0; i < SOC_UART_HP_NUM; ++i) {
         if (uart_ll_is_enabled(i)) {
-            esp_rom_uart_tx_wait_idle(i);
+            esp_rom_output_tx_wait_idle(i);
+        }
+    }
+
+    // Note: AXI bus doesn't allow an undergoing transaction to be interrupted in the middle
+    // If you want to reset a AXI master, you should make sure that the master is in IDLE first
+    if (gdma_ll_is_bus_clock_enabled(1)) {
+        for (int i = 0; i < GDMA_LL_AXI_PAIRS_PER_GROUP; i++) {
+            axi_dma_ll_tx_abort(AXI_DMA_LL_GET_HW(0), i, true);
+            axi_dma_ll_rx_abort(AXI_DMA_LL_GET_HW(0), i, true);
+            while (!axi_dma_ll_tx_is_reset_avail(AXI_DMA_LL_GET_HW(0), i));
+            while (!axi_dma_ll_rx_is_reset_avail(AXI_DMA_LL_GET_HW(0), i));
+        }
+    }
+    if (dma2d_ll_is_bus_clock_enabled(0)) {
+        for (int i = 0; i < SOC_DMA2D_RX_CHANNELS_PER_GROUP; i++) {
+            dma2d_ll_rx_abort(DMA2D_LL_GET_HW(0), i, true);
+            while (!dma2d_ll_rx_is_reset_avail(DMA2D_LL_GET_HW(0), i));
+        }
+        for (int i = 0; i < SOC_DMA2D_TX_CHANNELS_PER_GROUP; i++) {
+            dma2d_ll_tx_abort(DMA2D_LL_GET_HW(0), i, true);
+            while (!dma2d_ll_tx_is_reset_avail(DMA2D_LL_GET_HW(0), i));
+        }
+    }
+    if (dw_gdma_ll_is_bus_clock_enabled(0)) {
+        for (int i = 0; i < DW_GDMA_LL_CHANNELS_PER_GROUP; i++) {
+            dw_gdma_ll_channel_abort(DW_GDMA_LL_GET_HW(0), i);
         }
     }
 
     // Set Peripheral clk rst
-    SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_TIMERGRP0);
     SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_TIMERGRP1);
     SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_STIMER);
     SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN0_REG, HP_SYS_CLKRST_REG_RST_EN_DUAL_MSPI_AXI);
@@ -48,10 +78,9 @@ void IRAM_ATTR esp_system_reset_modules_on_exit(void)
     SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_UART2_CORE);
     SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_UART3_CORE);
     SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_UART4_CORE);
-    SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN0_REG, HP_SYS_CLKRST_REG_RST_EN_GDMA);
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN2_REG, HP_SYS_CLKRST_REG_RST_EN_ADC);
 
     // Clear Peripheral clk rst
-    CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_TIMERGRP0);
     CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_TIMERGRP1);
     CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_STIMER);
     CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN0_REG, HP_SYS_CLKRST_REG_RST_EN_DUAL_MSPI_AXI);
@@ -61,7 +90,29 @@ void IRAM_ATTR esp_system_reset_modules_on_exit(void)
     CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_UART2_CORE);
     CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_UART3_CORE);
     CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN1_REG, HP_SYS_CLKRST_REG_RST_EN_UART4_CORE);
-    CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN0_REG, HP_SYS_CLKRST_REG_RST_EN_GDMA);
+    CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN2_REG, HP_SYS_CLKRST_REG_RST_EN_ADC);
+
+#if CONFIG_ESP32P4_REV_MIN_FULL <= 100
+    // enable soc clk and reset parent crypto
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_SOC_CLK_CTRL1_REG, HP_SYS_CLKRST_REG_CRYPTO_SYS_CLK_EN);
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN2_REG, HP_SYS_CLKRST_REG_RST_EN_CRYPTO);
+    CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN2_REG, HP_SYS_CLKRST_REG_RST_EN_CRYPTO);
+
+    // enable soc clk for key manager
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_SOC_CLK_CTRL1_REG, HP_SYS_CLKRST_REG_KEY_MANAGER_SYS_CLK_EN);
+
+    // enable key manager peripheral clock and reset
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_PERI_CLK_CTRL25_REG, HP_SYS_CLKRST_REG_CRYPTO_KM_CLK_EN);
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN2_REG, HP_SYS_CLKRST_REG_RST_EN_KM);
+    CLEAR_PERI_REG_MASK(HP_SYS_CLKRST_HP_RST_EN2_REG, HP_SYS_CLKRST_REG_RST_EN_KM);
+#endif
+
+#if CONFIG_ESP32P4_REV_MIN_FULL == 0
+    // enable MPI, SHA and ECDSA peripheral clocks
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_PERI_CLK_CTRL25_REG, HP_SYS_CLKRST_REG_CRYPTO_RSA_CLK_EN);
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_PERI_CLK_CTRL25_REG, HP_SYS_CLKRST_REG_CRYPTO_SHA_CLK_EN);
+    SET_PERI_REG_MASK(HP_SYS_CLKRST_PERI_CLK_CTRL25_REG, HP_SYS_CLKRST_REG_CRYPTO_ECDSA_CLK_EN);
+#endif
 }
 
 /* "inner" restart function for after RTOS, interrupts & anything else on this
@@ -102,13 +153,16 @@ void IRAM_ATTR esp_restart_noos(void)
     wdt_hal_write_protect_enable(&wdt1_context);
 
     // Disable cache
+#if CONFIG_SPIRAM
+    Cache_WriteBack_All(CACHE_MAP_L1_DCACHE);
+#endif
     Cache_Disable_L2_Cache();
 
     esp_system_reset_modules_on_exit();
 
-    // Set CPU back to XTAL source, no PLL, same as hard reset
+    // Set CPU back to XTAL source (and MEM_CLK, APB_CLK back to power-on reset frequencies), same as hard reset, keep CPLL on.
 #if !CONFIG_IDF_ENV_FPGA
-    rtc_clk_cpu_freq_set_xtal();
+    rtc_clk_cpu_set_to_default_config();
 #endif
 
 #if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
@@ -140,7 +194,5 @@ void IRAM_ATTR esp_restart_noos(void)
     }
 #endif
 
-    while (true) {
-        ;
-    }
+    ESP_INFINITE_LOOP();
 }

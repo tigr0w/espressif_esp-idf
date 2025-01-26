@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,12 +8,24 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "sdkconfig.h"
+#include "soc/soc_caps.h"
 #include "esp_ieee802154_dev.h"
 #include "hal/ieee802154_ll.h"
 #include "esp_timer.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define IEEE802154_TAG "ieee802154"
+
+#define IEEE802154_OQPSK_2P4G_CHANNEL_MIN 11
+#define IEEE802154_OQPSK_2P4G_CHANNEL_MAX 26
+
+static inline bool ieee802154_is_valid_channel(uint8_t channel)
+{
+    return ((channel <= IEEE802154_OQPSK_2P4G_CHANNEL_MAX) && (channel >= IEEE802154_OQPSK_2P4G_CHANNEL_MIN));
+}
 
 #if SOC_PM_MODEM_RETENTION_BY_REGDMA && CONFIG_FREERTOS_USE_TICKLESS_IDLE
 #define IEEE802154_RF_ENABLE() ieee802154_rf_enable()
@@ -164,19 +176,27 @@ typedef struct {
 
 extern ieee802154_probe_info_t g_ieee802154_probe;
 
-#if CONFIG_IEEE802154_ASSERT
+#if CONFIG_IEEE802154_RECORD
 /**
  * @brief  This function print rich information, which is useful for debug.
  *         Only can be used when `IEEE802154_ASSERT` is enabled.
  *
  */
-void ieee802154_assert_print(void);
+void ieee802154_record_print(void);
+#endif
+
+#if CONFIG_IEEE802154_ASSERT
+
+#if CONFIG_IEEE802154_RECORD
 #define IEEE802154_ASSERT(a) do { \
-                                    if(!(a)) { \
-                                        ieee802154_assert_print(); \
+                                    if(unlikely(!(a))) { \
+                                        ieee802154_record_print(); \
                                         assert(a); \
                                     } \
                                 } while (0)
+#else
+#error "CONFIG_IEEE802154_RECORD must be enabled when CONFIG_IEEE802154_ASSERT enabled"
+#endif
 #else // CONFIG_IEEE802154_ASSERT
 #define IEEE802154_ASSERT(a) assert(a)
 #endif // CONFIG_IEEE802154_ASSERT
@@ -185,6 +205,7 @@ void ieee802154_assert_print(void);
 typedef struct ieee802154_txrx_statistic{
     struct {
         uint64_t nums;
+        uint64_t deferred_nums;
         uint64_t done_nums;
         struct {
             uint64_t rx_ack_coex_break_nums;        // IEEE802154_RX_ACK_ABORT_COEX_CNT_REG
@@ -218,6 +239,10 @@ typedef struct ieee802154_txrx_statistic{
             ieee802154_txrx_statistic(a);\
             } while(0)
 
+#define IEEE802154_TX_DEFERRED_NUMS_UPDATE() do { \
+            ieee802154_tx_deferred_nums_update();\
+            } while(0)
+
 #define IEEE802154_TX_NUMS_UPDATE() do { \
             ieee802154_tx_nums_update();\
             } while(0)
@@ -230,13 +255,42 @@ void ieee802154_txrx_statistic_clear(void);
 void ieee802154_txrx_statistic_print(void);
 void ieee802154_txrx_statistic(ieee802154_ll_events events);
 void ieee802154_tx_nums_update(void);
+void ieee802154_tx_deferred_nums_update(void);
 void ieee802154_tx_break_coex_nums_update(void);
 #else
 #define IEEE802154_TXRX_STATISTIC(a)
 #define IEEE802154_TX_NUMS_UPDATE()
+#define IEEE802154_TX_DEFERRED_NUMS_UPDATE()
 #define IEEE802154_TXRX_STATISTIC_CLEAR()
 #define IEEE802154_TX_BREAK_COEX_NUMS_UPDATE()
 #endif // CONFIG_IEEE802154_TXRX_STATISTIC
+
+#if CONFIG_IEEE802154_RX_BUFFER_STATISTIC
+
+/**
+ * @brief  Count the rx buffer used.
+ *
+ * @param[in]  is_free  True for rx buffer frees and false for rx buffer allocates.
+ *
+ */
+void ieee802154_rx_buffer_statistic_is_free(bool is_free);
+
+/**
+ * @brief  Clear the current IEEE802.15.4 rx buffer statistic.
+ *
+ */
+void ieee802154_rx_buffer_statistic_clear(void);
+
+/**
+ * @brief  Print the current IEEE802.15.4 rx buffer statistic.
+ *
+ */
+void ieee802154_rx_buffer_statistic_print(void);
+
+#define IEEE802154_RX_BUFFER_STAT_IS_FREE(a) ieee802154_rx_buffer_statistic_is_free(a)
+#else
+#define IEEE802154_RX_BUFFER_STAT_IS_FREE(a)
+#endif // CONFIG_IEEE802154_RX_BUFFER_STATISTIC
 
 // TODO: replace etm code using common interface
 
@@ -254,7 +308,7 @@ typedef enum {
     IEEE802154_SCENE_RX_AT,     /*!< IEEE802154 radio coexistence scene RX AT */
 } ieee802154_txrx_scene_t;
 
-#if !CONFIG_IEEE802154_TEST && CONFIG_ESP_COEX_SW_COEXIST_ENABLE || CONFIG_EXTERNAL_COEX_ENABLE
+#if !CONFIG_IEEE802154_TEST && (CONFIG_ESP_COEX_SW_COEXIST_ENABLE || CONFIG_EXTERNAL_COEX_ENABLE)
 
 /**
  * @brief  Set the IEEE802154 radio coexistence scene during transmitting or receiving.
@@ -273,9 +327,9 @@ void ieee802154_set_txrx_pti(ieee802154_txrx_scene_t txrx_scene);
 #endif // !CONFIG_IEEE802154_TEST && CONFIG_ESP_COEX_SW_COEXIST_ENABLE || CONFIG_EXTERNAL_COEX_ENABLE
 
 /**
- * @brief  Convert the frequence to the index of channel.
+ * @brief  Convert the frequency to the index of channel.
  *
- * @param[in]  freq  The frequence where the radio is processing.
+ * @param[in]  freq  The frequency where the radio is processing.
  *
  * @return
  *          The channel index.
@@ -284,12 +338,12 @@ void ieee802154_set_txrx_pti(ieee802154_txrx_scene_t txrx_scene);
 uint8_t ieee802154_freq_to_channel(uint8_t freq);
 
 /**
- * @brief  Convert the index of channel to the frequence.
+ * @brief  Convert the index of channel to the frequency.
  *
  * @param[in]  channel  The index of channel where the radio is processing.
  *
  * @return
- *          The frequence.
+ *          The frequency.
  *
  */
 uint8_t ieee802154_channel_to_freq(uint8_t channel);
@@ -313,6 +367,26 @@ void ieee802154_etm_set_event_task(uint32_t channel, uint32_t event, uint32_t ta
  *
  */
 void ieee802154_etm_channel_clear(uint32_t channel);
+
+#if !CONFIG_IEEE802154_TEST && (CONFIG_ESP_COEX_SW_COEXIST_ENABLE || CONFIG_EXTERNAL_COEX_ENABLE)
+
+/**
+ * @brief  Set the IEEE802.15.4 coexist config.
+ *
+ * @param[in]  config     The config of IEEE802.15.4 coexist.
+ *
+ */
+void ieee802154_set_coex_config(esp_ieee802154_coex_config_t config);
+
+/**
+ * @brief  Get the IEEE802.15.4 coexist config.
+ *
+ * @return
+ *        - The config of IEEE802.15.4 coexist.
+ *
+ */
+esp_ieee802154_coex_config_t ieee802154_get_coex_config(void);
+#endif
 
 #ifdef __cplusplus
 }

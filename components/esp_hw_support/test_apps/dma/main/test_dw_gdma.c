@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,6 +12,7 @@
 #include "esp_private/dw_gdma.h"
 #include "hal/dw_gdma_ll.h"
 #include "esp_cache.h"
+#include "esp_private/esp_cache_private.h"
 
 TEST_CASE("DW_GDMA channel allocation", "[DW_GDMA]")
 {
@@ -55,17 +56,20 @@ TEST_CASE("DW_GDMA M2M Test: Contiguous Mode", "[DW_GDMA]")
     TEST_ASSERT_NOT_NULL(done_sem);
 
     printf("prepare the source and destination buffers\r\n");
-    uint8_t *src_buf = heap_caps_aligned_calloc(64, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    uint8_t *dst_buf = heap_caps_aligned_calloc(64, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t sram_alignment = 0;
+    TEST_ESP_OK(esp_cache_get_alignment(0, &sram_alignment));
+    size_t alignment = MAX(sram_alignment, 8);
+    uint8_t *src_buf = heap_caps_aligned_calloc(alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint8_t *dst_buf = heap_caps_aligned_calloc(alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     TEST_ASSERT_NOT_NULL(src_buf);
     TEST_ASSERT_NOT_NULL(dst_buf);
     for (int i = 0; i < 256; i++) {
         src_buf[i] = i;
     }
-#if CONFIG_IDF_TARGET_ESP32P4
-    // do write-back for the source data because it's in the cache
-    TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
-#endif
+    if (sram_alignment) {
+        // do write-back for the source data because it's in the cache
+        TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
+    }
 
     printf("allocate a channel for memory copy\r\n");
     dw_gdma_channel_static_config_t static_config = {
@@ -116,10 +120,10 @@ TEST_CASE("DW_GDMA M2M Test: Contiguous Mode", "[DW_GDMA]")
     TEST_ASSERT_EQUAL(pdFALSE, xSemaphoreTake(done_sem, pdMS_TO_TICKS(100)));
 
     printf("check the memory copy result\r\n");
-#if CONFIG_IDF_TARGET_ESP32P4
-    // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
-    TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
-#endif
+    if (sram_alignment) {
+        // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
+        TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
+    }
     for (int i = 0; i < 256; i++) {
         TEST_ASSERT_EQUAL_UINT8(i, dst_buf[i]);
     }
@@ -144,17 +148,20 @@ TEST_CASE("DW_GDMA M2M Test: Reload Mode", "[DW_GDMA]")
     TEST_ASSERT_NOT_NULL(done_sem);
 
     printf("prepare the source and destination buffers\r\n");
-    uint8_t *src_buf = heap_caps_aligned_calloc(64, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    uint8_t *dst_buf = heap_caps_aligned_calloc(64, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t sram_alignment = 0;
+    TEST_ESP_OK(esp_cache_get_alignment(0, &sram_alignment));
+    size_t alignment = MAX(sram_alignment, 8);
+    uint8_t *src_buf = heap_caps_aligned_calloc(alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint8_t *dst_buf = heap_caps_aligned_calloc(alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     TEST_ASSERT_NOT_NULL(src_buf);
     TEST_ASSERT_NOT_NULL(dst_buf);
     for (int i = 0; i < 256; i++) {
         src_buf[i] = i;
     }
-#if CONFIG_IDF_TARGET_ESP32P4
-    // do write-back for the source data because it's in the cache
-    TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
-#endif
+    if (sram_alignment) {
+        // do write-back for the source data because it's in the cache
+        TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
+    }
 
     printf("allocate a channel for memory copy\r\n");
     dw_gdma_channel_static_config_t static_config = {
@@ -211,10 +218,10 @@ TEST_CASE("DW_GDMA M2M Test: Reload Mode", "[DW_GDMA]")
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(done_sem, pdMS_TO_TICKS(100)));
 
     printf("check the memory copy result\r\n");
-#if CONFIG_IDF_TARGET_ESP32P4
-    // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
-    TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
-#endif
+    if (sram_alignment) {
+        // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
+        TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
+    }
     for (int i = 0; i < 256; i++) {
         TEST_ASSERT_EQUAL_UINT8(i, dst_buf[i]);
     }
@@ -263,17 +270,20 @@ TEST_CASE("DW_GDMA M2M Test: Shadow Mode", "[DW_GDMA]")
     TEST_ASSERT_NOT_NULL(done_sem);
 
     printf("prepare the source and destination buffers\r\n");
-    uint8_t *src_buf = heap_caps_aligned_calloc(64, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    uint8_t *dst_buf = heap_caps_aligned_calloc(64, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t sram_alignment = 0;
+    TEST_ESP_OK(esp_cache_get_alignment(0, &sram_alignment));
+    size_t alignment = MAX(sram_alignment, 8);
+    uint8_t *src_buf = heap_caps_aligned_calloc(alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint8_t *dst_buf = heap_caps_aligned_calloc(alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     TEST_ASSERT_NOT_NULL(src_buf);
     TEST_ASSERT_NOT_NULL(dst_buf);
     for (int i = 0; i < 256; i++) {
         src_buf[i] = i;
     }
-#if CONFIG_IDF_TARGET_ESP32P4
-    // do write-back for the source data because it's in the cache
-    TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
-#endif
+    if (sram_alignment) {
+        // do write-back for the source data because it's in the cache
+        TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
+    }
 
     printf("allocate a channel for memory copy\r\n");
     dw_gdma_channel_static_config_t static_config = {
@@ -333,10 +343,10 @@ TEST_CASE("DW_GDMA M2M Test: Shadow Mode", "[DW_GDMA]")
     TEST_ASSERT_EQUAL_UINT8(1, user_data.count);
 
     printf("check the memory copy result\r\n");
-#if CONFIG_IDF_TARGET_ESP32P4
-    // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
-    TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
-#endif
+    if (sram_alignment) {
+        // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
+        TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
+    }
     for (int i = 0; i < 256; i++) {
         TEST_ASSERT_EQUAL_UINT8(i, dst_buf[i]);
     }
@@ -370,6 +380,7 @@ static bool test_dw_gdma_list_mode_invalid_block_cb(dw_gdma_channel_handle_t cha
     udata->count++;
     // clear the destination buffer
     memset(udata->dst_buffer_addr, 0, udata->dst_buffer_size);
+    esp_cache_msync(udata->dst_buffer_addr, udata->dst_buffer_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
     dw_gdma_block_markers_t markers = {
         .is_last = true,  // mark the next block as the last one
         .is_valid = true, // mark the block as valid so that the DMA can continue the transfer
@@ -386,17 +397,20 @@ TEST_CASE("DW_GDMA M2M Test: Link-List Mode", "[DW_GDMA]")
     TEST_ASSERT_NOT_NULL(done_sem);
 
     printf("prepare the source and destination buffers\r\n");
-    uint8_t *src_buf = heap_caps_aligned_calloc(64, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    uint8_t *dst_buf = heap_caps_aligned_calloc(64, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t sram_alignment = 0;
+    TEST_ESP_OK(esp_cache_get_alignment(0, &sram_alignment));
+    size_t alignment = MAX(sram_alignment, 8);
+    uint8_t *src_buf = heap_caps_aligned_calloc(alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint8_t *dst_buf = heap_caps_aligned_calloc(alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     TEST_ASSERT_NOT_NULL(src_buf);
     TEST_ASSERT_NOT_NULL(dst_buf);
     for (int i = 0; i < 256; i++) {
         src_buf[i] = i;
     }
-#if CONFIG_IDF_TARGET_ESP32P4
-    // do write-back for the source data because it's in the cache
-    TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
-#endif
+    if (sram_alignment) {
+        // do write-back for the source data because it's in the cache
+        TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
+    }
 
     printf("allocate a channel for memory copy\r\n");
     dw_gdma_channel_static_config_t static_config = {
@@ -471,10 +485,10 @@ TEST_CASE("DW_GDMA M2M Test: Link-List Mode", "[DW_GDMA]")
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(done_sem, pdMS_TO_TICKS(1000)));
 
     printf("check the memory copy result\r\n");
-#if CONFIG_IDF_TARGET_ESP32P4
-    // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
-    TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
-#endif
+    if (sram_alignment) {
+        // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
+        TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
+    }
     for (int i = 0; i < 256; i++) {
         TEST_ASSERT_EQUAL_UINT8(i, dst_buf[i]);
     }
@@ -499,12 +513,14 @@ TEST_CASE("DW_GDMA M2M Test: Link-List Mode", "[DW_GDMA]")
     TEST_ESP_OK(dw_gdma_channel_enable_ctrl(m2m_chan, true));
 
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(done_sem, pdMS_TO_TICKS(1000)));
+    // should only go into the block invalid callback for once
+    TEST_ASSERT_EQUAL_UINT8(1, user_data.count);
 
     printf("check the memory copy result\r\n");
-#if CONFIG_IDF_TARGET_ESP32P4
-    // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
-    TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
-#endif
+    if (sram_alignment) {
+        // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
+        TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
+    }
     for (int i = 0; i < 256; i++) {
         TEST_ASSERT_EQUAL_UINT8(i, dst_buf[i]);
     }
@@ -514,4 +530,79 @@ TEST_CASE("DW_GDMA M2M Test: Link-List Mode", "[DW_GDMA]")
     free(src_buf);
     free(dst_buf);
     vSemaphoreDelete(done_sem);
+}
+
+TEST_CASE("DW_GDMA M2M Test: memory set with fixed address", "[DW_GDMA]")
+{
+    printf("prepare the source and destination buffers\r\n");
+    // memset: source in psram and destination in sram
+    size_t ext_mem_alignment = 0;
+    size_t int_mem_alignment = 0;
+    TEST_ESP_OK(esp_cache_get_alignment(MALLOC_CAP_SPIRAM, &ext_mem_alignment));
+    TEST_ESP_OK(esp_cache_get_alignment(0, &int_mem_alignment));
+    uint8_t *src_buf = heap_caps_aligned_calloc(ext_mem_alignment, 1, 256, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint8_t *dst_buf = heap_caps_aligned_calloc(int_mem_alignment, 1, 256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    TEST_ASSERT_NOT_NULL(src_buf);
+    TEST_ASSERT_NOT_NULL(dst_buf);
+    // prepare the source buffer, only the first byte has a non-zero value
+    for (int i = 0; i < 256; i++) {
+        src_buf[i] = 0;
+    }
+    src_buf[0] = 66;
+    if (ext_mem_alignment) {
+        // do write-back for the source data because it's in the cache
+        TEST_ESP_OK(esp_cache_msync((void *)src_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_C2M));
+    }
+
+    printf("allocate a channel for memory set\r\n");
+    dw_gdma_channel_static_config_t static_config = {
+        .block_transfer_type = DW_GDMA_BLOCK_TRANSFER_CONTIGUOUS,
+        .role = DW_GDMA_ROLE_MEM,
+        .num_outstanding_requests = 1,
+    };
+    dw_gdma_channel_alloc_config_t alloc_config = {
+        .src = static_config,
+        .dst = static_config,
+        .flow_controller = DW_GDMA_FLOW_CTRL_SELF, // DMA as the flow controller
+        .chan_priority = 1,
+    };
+    dw_gdma_channel_handle_t m2m_chan = NULL;
+    TEST_ESP_OK(dw_gdma_new_channel(&alloc_config, &m2m_chan));
+
+    printf("set up memory set transaction\r\n");
+    dw_gdma_block_transfer_config_t transfer_config = {
+        .src = {
+            .addr = (uint32_t)src_buf,
+            .burst_mode = DW_GDMA_BURST_MODE_FIXED,
+            .width = DW_GDMA_TRANS_WIDTH_8,
+            .burst_items = 4,
+            .burst_len = 1, // Note for ESP32P4, if the buffer is in PSRAM and the burst mode is fixed, we can't set the burst length larger than 1
+        },
+        .dst = {
+            .addr = (uint32_t)dst_buf,
+            .burst_mode = DW_GDMA_BURST_MODE_INCREMENT,
+            .width = DW_GDMA_TRANS_WIDTH_8,
+            .burst_items = 4,
+            .burst_len = 1,
+        },
+        .size = 256,
+    };
+    TEST_ESP_OK(dw_gdma_channel_config_transfer(m2m_chan, &transfer_config));
+
+    printf("start the DMA engine\r\n");
+    TEST_ESP_OK(dw_gdma_channel_enable_ctrl(m2m_chan, true));
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    printf("check the memory set result\r\n");
+    if (int_mem_alignment) {
+        // the destination data are not reflected to the cache, so do an invalidate to ask the cache load new data
+        TEST_ESP_OK(esp_cache_msync((void *)dst_buf, 256, ESP_CACHE_MSYNC_FLAG_DIR_M2C));
+    }
+    for (int i = 0; i < 256; i++) {
+        TEST_ASSERT_EQUAL_UINT8(66, dst_buf[i]);
+    }
+
+    TEST_ESP_OK(dw_gdma_del_channel(m2m_chan));
+    free(src_buf);
+    free(dst_buf);
 }

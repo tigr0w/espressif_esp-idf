@@ -5,7 +5,6 @@
  */
 
 #include <sys/param.h>
-#include "sdkconfig.h"
 #include "soc/soc_caps.h"
 #include "hal/adc_hal_common.h"
 #include "hal/adc_ll.h"
@@ -18,8 +17,8 @@ static adc_ll_controller_t get_controller(adc_unit_t unit, adc_hal_work_mode_t w
 {
     if (unit == ADC_UNIT_1) {
         switch (work_mode) {
-#if SOC_ULP_HAS_ADC
-            case ADC_HAL_ULP_FSM_MODE:
+#if SOC_ULP_HAS_ADC || SOC_LP_CORE_SUPPORT_LP_ADC
+            case ADC_HAL_LP_MODE:
                 return ADC_LL_CTRL_ULP;
 #endif
             case ADC_HAL_SINGLE_READ_MODE:
@@ -35,8 +34,8 @@ static adc_ll_controller_t get_controller(adc_unit_t unit, adc_hal_work_mode_t w
         }
     } else {
         switch (work_mode) {
-#if SOC_ULP_HAS_ADC
-            case ADC_HAL_ULP_FSM_MODE:
+#if SOC_ULP_HAS_ADC || SOC_LP_CORE_SUPPORT_LP_ADC
+            case ADC_HAL_LP_MODE:
                 return ADC_LL_CTRL_ULP;
 #endif
 #if !SOC_ADC_ARBITER_SUPPORTED                  //No ADC2 arbiter on ESP32

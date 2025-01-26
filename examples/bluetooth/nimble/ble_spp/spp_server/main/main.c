@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -141,18 +141,18 @@ ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
     int rc;
 
     switch (event->type) {
-    case BLE_GAP_EVENT_CONNECT:
+    case BLE_GAP_EVENT_LINK_ESTAB:
         /* A new connection was established or a connection attempt failed. */
         MODLOG_DFLT(INFO, "connection %s; status=%d ",
-                    event->connect.status == 0 ? "established" : "failed",
-                    event->connect.status);
-        if (event->connect.status == 0) {
-            rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
+                    event->link_estab.status == 0 ? "established" : "failed",
+                    event->link_estab.status);
+        if (event->link_estab.status == 0) {
+            rc = ble_gap_conn_find(event->link_estab.conn_handle, &desc);
             assert(rc == 0);
             ble_spp_server_print_conn_desc(&desc);
         }
         MODLOG_DFLT(INFO, "\n");
-        if (event->connect.status != 0 || CONFIG_BT_NIMBLE_MAX_CONNECTIONS > 1) {
+        if (event->link_estab.status != 0 || CONFIG_BT_NIMBLE_MAX_CONNECTIONS > 1) {
             /* Connection failed or if multiple connection allowed; resume advertising. */
             ble_spp_server_advertise();
         }
@@ -355,7 +355,7 @@ void ble_server_uart_task(void *pvParameters)
         //Waiting for UART event.
         if (xQueueReceive(spp_common_uart_queue, (void * )&event, (TickType_t)portMAX_DELAY))            {
             switch (event.type) {
-            //Event of UART receving data
+            //Event of UART receiving data
             case UART_DATA:
                 if (event.size) {
                     uint8_t *ntf;
@@ -367,7 +367,7 @@ void ble_server_uart_task(void *pvParameters)
                         /* Check if client has subscribed to notifications */
                         if (conn_handle_subs[i]) {
                             struct os_mbuf *txom;
-                            txom = ble_hs_mbuf_from_flat(ntf, sizeof(ntf));
+                            txom = ble_hs_mbuf_from_flat(ntf, event.size);
                             rc = ble_gatts_notify_custom(i, ble_spp_svc_gatt_read_val_handle,
                                                          txom);
                             if (rc == 0) {
@@ -377,6 +377,8 @@ void ble_server_uart_task(void *pvParameters)
                             }
                         }
                     }
+
+		    free(ntf);
                 }
                 break;
             default:

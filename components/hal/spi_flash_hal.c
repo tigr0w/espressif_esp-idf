@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,6 +11,7 @@
 #include <string.h>
 #include <math.h>
 #include "soc/soc_caps.h"
+#include "hal/gpio_ll.h"    //for GPIO_LL_MATRIX_DELAY_NS
 #include "hal/spi_flash_hal.h"
 #include "hal/assert.h"
 #include "hal/log.h"
@@ -64,7 +65,10 @@ static inline int get_dummy_n(bool gpio_is_used, int input_delay_ns, int eff_clk
     const int apbclk_kHz = APB_CLK_FREQ / 1000;
     //calculate how many apb clocks a period has
     const int apbclk_n = APB_CLK_FREQ / eff_clk;
-    const int gpio_delay_ns = gpio_is_used ? GPIO_MATRIX_DELAY_NS : 0;
+    int gpio_delay_ns = 0;
+#if GPIO_LL_MATRIX_DELAY_NS
+    gpio_delay_ns = gpio_is_used ? GPIO_LL_MATRIX_DELAY_NS : 0;
+#endif
 
     //calculate how many apb clocks the delay is, the 1 is to compensate in case ``input_delay_ns`` is rounded off.
     int apb_period_n = (1 + input_delay_ns + gpio_delay_ns) * apbclk_kHz / 1000 / 1000;
@@ -113,6 +117,7 @@ esp_err_t spi_flash_hal_init(spi_flash_hal_context_t *data_out, const spi_flash_
 #if SOC_SPI_MEM_SUPPORT_TIMING_TUNING
     if (cfg->using_timing_tuning) {
         data_out->extra_dummy = extra_dummy_under_timing_tuning(cfg);
+        data_out->fdummy_rin = cfg->fdummy_rin;
         data_out->clock_conf = cfg->clock_config;
     } else
 #endif // SOC_SPI_MEM_SUPPORT_TIMING_TUNING
@@ -126,7 +131,12 @@ esp_err_t spi_flash_hal_init(spi_flash_hal_context_t *data_out, const spi_flash_
         data_out->flags |= SPI_FLASH_HOST_CONTEXT_FLAG_AUTO_SUSPEND;
         data_out->flags |= SPI_FLASH_HOST_CONTEXT_FLAG_AUTO_RESUME;
         data_out->tsus_val = cfg->tsus_val;
+        data_out->auto_waiti_pes = cfg->auto_waiti_pes;
     }
+
+#if CONFIG_SPI_FLASH_SOFTWARE_RESUME
+    data_out->flags &= ~SPI_FLASH_HOST_CONTEXT_FLAG_AUTO_RESUME;
+#endif
 
 #if SOC_SPI_MEM_SUPPORT_OPI_MODE
     if (cfg->octal_mode_en) {

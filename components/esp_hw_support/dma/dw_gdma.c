@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -29,6 +29,7 @@
 #include "hal/dw_gdma_ll.h"
 #include "hal/cache_hal.h"
 #include "hal/cache_ll.h"
+#include "esp_cache.h"
 
 static const char *TAG = "dw-gdma";
 
@@ -41,11 +42,13 @@ static const char *TAG = "dw-gdma";
 
 #if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
 #define DW_GDMA_GET_NON_CACHE_ADDR(addr) ((addr) ? CACHE_LL_L2MEM_NON_CACHE_ADDR(addr) : 0)
+#define DW_GDMA_GET_CACHE_ADDRESS(nc_addr) ((nc_addr) ? CACHE_LL_L2MEM_CACHE_ADDR(nc_addr) : 0)
 #else
 #define DW_GDMA_GET_NON_CACHE_ADDR(addr) (addr)
+#define DW_GDMA_GET_CACHE_ADDRESS(nc_addr) (nc_addr)
 #endif
 
-#if CONFIG_DW_GDMA_ISR_IRAM_SAFE || CONFIG_DW_GDMA_CTRL_FUNC_IN_IRAM || DW_GDMA_SETTER_FUNC_IN_IRAM
+#if CONFIG_DW_GDMA_OBJ_DRAM_SAFE
 #define DW_GDMA_MEM_ALLOC_CAPS    (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
 #else
 #define DW_GDMA_MEM_ALLOC_CAPS    MALLOC_CAP_DEFAULT
@@ -58,6 +61,8 @@ static const char *TAG = "dw-gdma";
 #endif
 
 #define DW_GDMA_ALLOW_INTR_PRIORITY_MASK ESP_INTR_FLAG_LOWMED
+
+#define ALIGN_UP(num, align)    (((num) + ((align) - 1)) & ~((align) - 1))
 
 typedef struct dw_gdma_group_t dw_gdma_group_t;
 typedef struct dw_gdma_channel_t dw_gdma_channel_t;
@@ -207,6 +212,9 @@ static esp_err_t channel_destroy(dw_gdma_channel_t *chan)
 {
     if (chan->group) {
         channel_unregister_from_group(chan);
+    }
+    if (chan->intr) {
+        esp_intr_free(chan->intr);
     }
     free(chan);
     return ESP_OK;
@@ -373,18 +381,28 @@ esp_err_t dw_gdma_channel_continue(dw_gdma_channel_handle_t chan)
 esp_err_t dw_gdma_new_link_list(const dw_gdma_link_list_config_t *config, dw_gdma_link_list_handle_t *ret_list)
 {
     esp_err_t ret = ESP_OK;
-    ESP_RETURN_ON_FALSE(ret_list, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(config && ret_list, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
     dw_gdma_link_list_item_t *items = NULL;
     dw_gdma_link_list_t *list = NULL;
     uint32_t num_items = config->num_items;
     list = heap_caps_calloc(1, sizeof(dw_gdma_link_list_t), DW_GDMA_MEM_ALLOC_CAPS);
     ESP_GOTO_ON_FALSE(list, ESP_ERR_NO_MEM, err, TAG, "no mem for link list");
-    // the link list item has a strict alignment requirement, so we allocate it separately
-    items = heap_caps_aligned_calloc(DW_GDMA_LL_LINK_LIST_ALIGNMENT, num_items,
-                                     sizeof(dw_gdma_link_list_item_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
-    ESP_RETURN_ON_FALSE(items, ESP_ERR_NO_MEM, TAG, "no mem for link list items");
+    // allocate memory for link list items, from internal memory
+    // the link list items has its own alignment requirement, the heap allocator can help handle the cache alignment as well
+    items = heap_caps_aligned_calloc(DW_GDMA_LL_LINK_LIST_ALIGNMENT, num_items, sizeof(dw_gdma_link_list_item_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    ESP_GOTO_ON_FALSE(items, ESP_ERR_NO_MEM, err, TAG, "no mem for link list items");
+    // do memory sync when the link list items are cached
+    uint32_t data_cache_line_size = cache_hal_get_cache_line_size(CACHE_LL_LEVEL_INT_MEM, CACHE_TYPE_DATA);
+    if (data_cache_line_size) {
+        // write back and then invalidate the cache, because later we will read/write the link list items by non-cacheable address
+        ESP_GOTO_ON_ERROR(esp_cache_msync(items, num_items * sizeof(dw_gdma_link_list_item_t),
+                                          ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE | ESP_CACHE_MSYNC_FLAG_UNALIGNED),
+                          err, TAG, "cache sync failed");
+    }
+
     list->num_items = num_items;
     list->items = items;
+    // want to use non-cached address to operate the link list items
     list->items_nc = (dw_gdma_link_list_item_t *)DW_GDMA_GET_NON_CACHE_ADDR(items);
 
     // set up the link list
@@ -444,8 +462,19 @@ dw_gdma_lli_handle_t dw_gdma_link_list_get_item(dw_gdma_link_list_handle_t list,
 {
     ESP_RETURN_ON_FALSE_ISR(list, NULL, TAG, "invalid argument");
     ESP_RETURN_ON_FALSE_ISR(item_index < list->num_items, NULL, TAG, "invalid item index");
+    // Note: the returned address is non-cached
     dw_gdma_link_list_item_t *lli = list->items_nc + item_index;
     return lli;
+}
+
+esp_err_t dw_gdma_lli_set_next(dw_gdma_lli_handle_t lli, dw_gdma_lli_handle_t next)
+{
+    ESP_RETURN_ON_FALSE(lli && next, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+
+    // the next field must use a cached address, so convert it to a cached address
+    dw_gdma_ll_lli_set_next_item_addr(lli, DW_GDMA_GET_CACHE_ADDRESS(next));
+
+    return ESP_OK;
 }
 
 esp_err_t dw_gdma_channel_config_transfer(dw_gdma_channel_handle_t chan, const dw_gdma_block_transfer_config_t *config)
@@ -465,7 +494,7 @@ esp_err_t dw_gdma_channel_config_transfer(dw_gdma_channel_handle_t chan, const d
     // [Ctrl0] register
     // set master port for the source and destination target
     dw_gdma_ll_channel_set_src_master_port(hal->dev, chan_id, config->src.addr);
-    dw_gdma_ll_channel_set_dst_master_port(hal->dev, chan_id, config->src.addr);
+    dw_gdma_ll_channel_set_dst_master_port(hal->dev, chan_id, config->dst.addr);
     // transfer width
     dw_gdma_ll_channel_set_src_trans_width(hal->dev, chan_id, config->src.width);
     dw_gdma_ll_channel_set_dst_trans_width(hal->dev, chan_id, config->dst.width);
@@ -502,7 +531,7 @@ esp_err_t dw_gdma_channel_set_block_markers(dw_gdma_channel_handle_t chan, dw_gd
     return ESP_OK;
 }
 
-esp_err_t dw_gdma_lli_config_transfer(dw_gdma_lli_handle_t lli, dw_gdma_block_transfer_config_t *config)
+esp_err_t dw_gdma_lli_config_transfer(dw_gdma_lli_handle_t lli, const dw_gdma_block_transfer_config_t *config)
 {
     ESP_RETURN_ON_FALSE(lli && config, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
 

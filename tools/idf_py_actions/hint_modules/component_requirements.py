@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 import os
 import re
@@ -8,7 +8,7 @@ from idf_py_actions.tools import get_build_context
 
 '''
 glossary:
-orignal_component:   component which compilation failed
+original_component:  component which compilation failed
 source_component:    component containing file which is including the missing header file
 candidate_component: component which contain the missing header file
 original_filename:   abs path of file(compilation unit) in original_component
@@ -21,10 +21,14 @@ ENOENT_RE = re.compile(r'^(.+):\d+:\d+: fatal error: (.+): No such file or direc
                        flags=re.MULTILINE)
 # Regex to find full preprocessor's error message to identify the original_filename
 # in case the missing_header is reported in indirect include.
-ENOENT_FULL_RE = re.compile(r'^(In file included.*No such file or directory)$',
+ENOENT_FULL_RE = re.compile(r'^(In file included.*?No such file or directory)$',
                             flags=re.MULTILINE | re.DOTALL)
 # Regex to find original_filename in preprocessor's error message
 ORIGINAL_FILE_RE = re.compile(r'.*from (.*):[\d]+:')
+
+
+def _bug(msg: str) -> str:
+    return f'BUG: {os.path.basename(__file__)}: {msg}'
 
 
 def _get_absolute_path(filename: str, base: str) -> str:
@@ -74,13 +78,14 @@ def generate_hint(output: str) -> Optional[str]:
         # we can't help much.
         return None
 
-    # find the original_component, which may be different from sourc_component
+    # find the original_component, which may be different from source_component
     found_original_component_name = found_source_component_name
     found_original_component_info = found_source_component_info
     original_filename = source_filename
     hint_match_full = ENOENT_FULL_RE.search(output)
     if hint_match_full:
-        lines = hint_match_full.group().splitlines()
+        # As a precaution remove empty lines, but there should be none.
+        lines = [line for line in hint_match_full.group().splitlines() if line]
         # second line from the end contains filename which is part of the
         # original_component
         original_file_match = ORIGINAL_FILE_RE.match(lines[-2])
@@ -92,11 +97,19 @@ def generate_hint(output: str) -> Optional[str]:
                     found_original_component_name = component_name
                     found_original_component_info = component_info
                     break
+            else:
+                # Original component not found. This should never happen, because the
+                # original_filename has to part of some component, which was added to
+                # the build.
+                return _bug((f'cannot find original component for source '
+                             f'component {found_source_component_name}'))
+
         else:
             # We should never reach this path. It would probably mean
-            # the preprocessor output was changed. Anyway we can still
-            # report something meaningful, so just keep going.
-            pass
+            # the preprocessor output was changed or we received malformed
+            # output.
+            return _bug((f'cannot match original component filename for '
+                         f'source component {found_source_component_name}'))
 
     # look for the header file in the public include directories of all components
     found_dep_component_names = []
@@ -131,7 +144,9 @@ def generate_hint(output: str) -> Optional[str]:
             candidates = ', '.join(candidate_component_include_dirs)
             return (f'Missing "{missing_header}" file name found in the following component(s): {candidates}. '
                     f'Maybe one of the components needs to add the missing header directory to INCLUDE_DIRS '
-                    f'of idf_component_register call in CMakeLists.txt.')
+                    f'of idf_component_register call in CMakeLists.txt. Another possibility may be that the '
+                    f'component or its feature is not enabled in the configuration. Use "idf.py menuconfig" '
+                    f'to check if the required options are enabled.')
 
         # The missing header not found anywhere, nothing much we can do here.
         return None
@@ -154,7 +169,8 @@ def generate_hint(output: str) -> Optional[str]:
         if dep_component_name in all_reqs:
             # Oops. This component is already in the requirements list.
             # How did this happen?
-            return f'BUG: {missing_header} found in component {dep_component_name} which is already in the requirements list of {found_source_component_name}'
+            return _bug((f'{missing_header} found in component {dep_component_name} '
+                         f'which is already in the requirements list of {found_source_component_name}'))
 
     # try to figure out the correct require type: REQUIRES or PRIV_REQUIRES
     requires_type = None

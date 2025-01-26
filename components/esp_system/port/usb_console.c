@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -46,6 +46,8 @@
 #include "esp32s3/rom/usb/chip_usb_dw_wrapper.h"
 #endif
 
+#include "esp_private/esp_vfs_cdcacm_select.h"
+
 #define CDC_WORK_BUF_SIZE (ESP_ROM_CDC_ACM_WORK_BUF_MIN + CONFIG_ESP_CONSOLE_USB_CDC_RX_BUF_SIZE)
 
 typedef enum {
@@ -55,7 +57,7 @@ typedef enum {
     REBOOT_BOOTLOADER_DFU,
 } reboot_type_t;
 
-
+static bool s_usb_installed = false;
 static reboot_type_t s_queue_reboot = REBOOT_NONE;
 static int s_prev_rts_state;
 static intr_handle_t s_usb_int_handle;
@@ -87,11 +89,9 @@ void esp_usb_console_write_char(char c);
 #define ISR_FLAG  0
 #endif // CONFIG_ESP_CONSOLE_USB_CDC_SUPPORT_ETS_PRINTF
 
-
 /* Optional write lock routines; used only if esp_rom_printf output via CDC is enabled */
 static inline void write_lock_acquire(void);
 static inline void write_lock_release(void);
-
 
 /* Other forward declarations */
 void esp_usb_console_before_restart(void);
@@ -134,6 +134,18 @@ int esp_usb_console_osglue_wait_proc(int delay_us)
     }
 }
 
+/* USB interrupt handler, forward the call to the ROM driver.
+ * Non-static to allow placement into IRAM by ldgen.
+ */
+static cdcacm_select_notif_callback_t s_cdcacm_select_notif_callback = NULL;
+
+void cdcacm_set_select_notif_callback(cdcacm_select_notif_callback_t cdcacm_select_notif_callback)
+{
+    if (esp_usb_console_is_installed()) {
+        s_cdcacm_select_notif_callback = cdcacm_select_notif_callback;
+    }
+}
+
 /* Called by ROM CDC ACM driver from interrupt context./
  * Non-static to allow placement into IRAM by ldgen.
  */
@@ -171,6 +183,8 @@ void esp_usb_console_dfu_detach_cb(int timeout)
  */
 void esp_usb_console_interrupt(void *arg)
 {
+    BaseType_t xTaskWoken = 0;
+
     usb_dc_check_poll_for_interrupts();
     /* Restart can be requested from esp_usb_console_cdc_acm_cb or esp_usb_console_dfu_detach_cb */
     if (s_queue_reboot != REBOOT_NONE) {
@@ -194,6 +208,21 @@ void esp_usb_console_interrupt(void *arg)
             esp_usb_console_before_restart();
             esp_restart_noos();
         }
+    }
+
+    if (esp_usb_console_available_for_read() > 0) {
+        if (s_cdcacm_select_notif_callback != NULL) {
+            s_cdcacm_select_notif_callback(CDCACM_SELECT_READ_NOTIF, &xTaskWoken);
+        }
+    }
+    if (esp_usb_console_write_available()) {
+        if (s_cdcacm_select_notif_callback != NULL) {
+            s_cdcacm_select_notif_callback(CDCACM_SELECT_WRITE_NOTIF, &xTaskWoken);
+        }
+    }
+
+    if (xTaskWoken == pdTRUE) {
+        portYIELD_FROM_ISR();
     }
 }
 
@@ -273,7 +302,7 @@ esp_err_t esp_usb_console_init(void)
      *   It is not because we actually need the interrupt to work with cache disabled!
      */
     err = esp_intr_alloc(ETS_USB_INTR_SOURCE, ISR_FLAG | ESP_INTR_FLAG_INTRDISABLED,
-            esp_usb_console_interrupt, NULL, &s_usb_int_handle);
+                         esp_usb_console_interrupt, NULL, &s_usb_int_handle);
     if (err != ESP_OK) {
         esp_unregister_shutdown_handler(esp_usb_console_before_restart);
         return err;
@@ -298,10 +327,11 @@ esp_err_t esp_usb_console_init(void)
 
 #ifdef CONFIG_ESP_CONSOLE_USB_CDC_SUPPORT_ETS_PRINTF
     /* Install esp_rom_printf handler */
-    esp_rom_uart_set_as_console(ESP_ROM_USB_OTG_NUM);
+    esp_rom_output_set_as_console(ESP_ROM_USB_OTG_NUM);
     esp_rom_install_channel_putc(1, &esp_usb_console_write_char);
 #endif // CONFIG_ESP_CONSOLE_USB_CDC_SUPPORT_ETS_PRINTF
 
+    s_usb_installed = true;
     return ESP_OK;
 }
 
@@ -425,6 +455,11 @@ esp_err_t esp_usb_console_set_cb(esp_usb_console_cb_t rx_cb, esp_usb_console_cb_
     return ESP_OK;
 }
 
+bool esp_usb_console_is_installed(void)
+{
+    return s_usb_installed;
+}
+
 ssize_t esp_usb_console_available_for_read(void)
 {
     if (s_cdc_acm_device == NULL) {
@@ -440,7 +475,6 @@ bool esp_usb_console_write_available(void)
     }
     return cdc_acm_irq_tx_ready(s_cdc_acm_device) != 0;
 }
-
 
 #ifdef CONFIG_ESP_CONSOLE_USB_CDC_SUPPORT_ETS_PRINTF
 /* Used as an output function by esp_rom_printf.

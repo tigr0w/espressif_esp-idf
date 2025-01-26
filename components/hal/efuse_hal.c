@@ -1,10 +1,9 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "sdkconfig.h"
 #include <sys/param.h>
 #include "soc/soc_caps.h"
 #include "hal/efuse_ll.h"
@@ -24,7 +23,7 @@ IRAM_ATTR uint32_t efuse_hal_chip_revision(void)
     return efuse_hal_get_major_chip_version() * 100 + efuse_hal_get_minor_chip_version();
 }
 
-uint32_t efuse_hal_blk_version(void)
+IRAM_ATTR uint32_t efuse_hal_blk_version(void)
 {
     return efuse_ll_get_blk_version_major() * 100 + efuse_ll_get_blk_version_minor();
 }
@@ -32,6 +31,16 @@ uint32_t efuse_hal_blk_version(void)
 IRAM_ATTR bool efuse_hal_get_disable_wafer_version_major(void)
 {
     return efuse_ll_get_disable_wafer_version_major();
+}
+
+IRAM_ATTR uint32_t efuse_hal_get_chip_ver_pkg(void)
+{
+    return efuse_ll_get_chip_ver_pkg();
+}
+
+IRAM_ATTR bool efuse_hal_get_disable_blk_version_major(void)
+{
+    return efuse_ll_get_disable_blk_version_major();
 }
 
 IRAM_ATTR bool efuse_hal_flash_encryption_enabled(void)
@@ -47,7 +56,7 @@ IRAM_ATTR bool efuse_hal_flash_encryption_enabled(void)
     return enabled;
 }
 
-#if SOC_ECDSA_SUPPORTED
+#if SOC_EFUSE_ECDSA_KEY
 void efuse_hal_set_ecdsa_key(int efuse_blk)
 {
     efuse_ll_set_ecdsa_key_blk(efuse_blk);

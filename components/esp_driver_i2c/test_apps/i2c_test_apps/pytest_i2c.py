@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: CC0-1.0
-
 import pytest
 from pytest_embedded import Dut
 
@@ -21,8 +20,10 @@ def test_i2c(dut: Dut) -> None:
 
 @pytest.mark.esp32
 @pytest.mark.esp32c3
+@pytest.mark.esp32c5
 @pytest.mark.esp32c6
 @pytest.mark.esp32h2
+@pytest.mark.esp32p4
 @pytest.mark.esp32s2
 @pytest.mark.esp32s3
 @pytest.mark.generic_multi_device
@@ -30,6 +31,9 @@ def test_i2c(dut: Dut) -> None:
     'count, config',
     [
         (2, 'defaults',),
+        (2, 'release',),
+        (2, 'iram_safe',),
+        (2, 'slave_v2',),
     ],
     indirect=True
 )

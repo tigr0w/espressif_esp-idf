@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2016-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2016-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,6 +13,8 @@ extern "C" {
 #include "sdkconfig.h"
 #include "esp_heap_caps.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "soc/uart_channel.h"
 
 // Forward declaration. Definition in linenoise/linenoise.h.
 typedef struct linenoiseCompletions linenoiseCompletions;
@@ -50,6 +52,7 @@ typedef struct {
     const char *history_save_path; //!< file path used to save history commands, set to NULL won't save to file system
     uint32_t task_stack_size;      //!< repl task stack size
     uint32_t task_priority;        //!< repl task priority
+    BaseType_t task_core_id;       //!< repl task affinity, i.e. which core the task is pinned to
     const char *prompt;            //!< prompt (NULL represents default: "esp> ")
     size_t max_cmdline_length;     //!< maximum length of a command line. If 0, default value will be used
 } esp_console_repl_config_t;
@@ -64,6 +67,7 @@ typedef struct {
         .history_save_path = NULL,        \
         .task_stack_size = 4096,          \
         .task_priority = 2,               \
+        .task_core_id = tskNO_AFFINITY,   \
         .prompt = NULL,                   \
         .max_cmdline_length = 0,          \
 }
@@ -75,7 +79,7 @@ typedef struct {
  */
 typedef struct {
     int channel;     //!< UART channel number (count from zero)
-    int baud_rate;   //!< Comunication baud rate
+    int baud_rate;   //!< Communication baud rate
     int tx_gpio_num; //!< GPIO number for TX path, -1 means using default one
     int rx_gpio_num; //!< GPIO number for RX path, -1 means using default one
 } esp_console_dev_uart_config_t;
@@ -85,8 +89,8 @@ typedef struct {
 {                                                   \
     .channel = CONFIG_ESP_CONSOLE_UART_NUM,         \
     .baud_rate = CONFIG_ESP_CONSOLE_UART_BAUDRATE,  \
-    .tx_gpio_num = CONFIG_ESP_CONSOLE_UART_TX_GPIO, \
-    .rx_gpio_num = CONFIG_ESP_CONSOLE_UART_RX_GPIO, \
+    .tx_gpio_num = (CONFIG_ESP_CONSOLE_UART_TX_GPIO >= 0) ? CONFIG_ESP_CONSOLE_UART_TX_GPIO : UART_NUM_0_TXD_DIRECT_GPIO_NUM, \
+    .rx_gpio_num = (CONFIG_ESP_CONSOLE_UART_RX_GPIO >= 0) ? CONFIG_ESP_CONSOLE_UART_RX_GPIO : UART_NUM_0_RXD_DIRECT_GPIO_NUM, \
 }
 #else
 #define ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT()      \
@@ -126,6 +130,12 @@ typedef struct {
 
 #define ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT() {}
 #endif // CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG || (defined __DOXYGEN__ && SOC_USB_SERIAL_JTAG_SUPPORTED)
+
+typedef enum {
+    ESP_CONSOLE_HELP_VERBOSE_LEVEL_0       = 0,
+    ESP_CONSOLE_HELP_VERBOSE_LEVEL_1       = 1,
+    ESP_CONSOLE_HELP_VERBOSE_LEVEL_MAX_NUM = 2
+} esp_console_help_verbose_level_e;
 
 /**
  * @brief initialize console module
@@ -203,15 +213,19 @@ typedef struct {
      * @note: Setting both \c func and \c func_w_context is not allowed.
      */
     esp_console_cmd_func_with_context_t func_w_context;
+    /**
+     * Context pointer to user-defined per-command context data.
+     * This is used if context aware function \c func_w_context is set.
+     */
+    void *context;
 } esp_console_cmd_t;
 
 /**
  * @brief Register console command
  * @param cmd pointer to the command description; can point to a temporary value
  *
- * @note If the member func_w_context of cmd is set instead of func, then there
- *       MUST be a subsequent call to \c esp_console_cmd_set_context to initialize the
- *       function context before it is used!
+ * @note If the member \c func_w_context of cmd is set instead of func, then the member \c context
+ *       is passed to the function pointed to by \c func_w_context.
  *
  * @return
  *      - ESP_OK on success
@@ -223,18 +237,14 @@ typedef struct {
 esp_err_t esp_console_cmd_register(const esp_console_cmd_t *cmd);
 
 /**
- * @brief Register context for a command registered with \c func_w_context before
+ * @brief Deregister console command
+ * @param cmd_name Name of the command to be deregistered. Must not be NULL, must not contain spaces.
  *
- *        \c context is only used if \c func_w_context has been set in the structure
- *        passed to esp_console_cmd_register()
- * @param cmd pointer to the command name
- * @param context pointer to user-defined per-command context data
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_NOT_FOUND if command was not found
- *      - ESP_ERR_INVALID_ARG if invalid arguments
+ *      - ESP_ERR_INVALID_ARG if command is not registered
  */
-esp_err_t esp_console_cmd_set_context(const char *cmd, void *context);
+esp_err_t esp_console_cmd_deregister(const char *cmd_name);
 
 /**
  * @brief Run command line
@@ -320,6 +330,18 @@ const char *esp_console_get_hint(const char *buf, int *color, int *bold);
  *      - ESP_ERR_INVALID_STATE, if esp_console_init wasn't called
  */
 esp_err_t esp_console_register_help_command(void);
+
+/**
+ * @brief Set the verbose level for 'help' command
+ *
+ * Set the verbose level for 'help' command. Higher verbose level shows more details.
+ * Valid verbose_level values are described in esp_console_help_verbose_level_e and must be lower than `ESP_CONSOLE_HELP_VERBOSE_LEVEL_MAX_NUM`.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG, if invalid verbose level is provided
+ */
+esp_err_t esp_console_set_help_verbose_level(esp_console_help_verbose_level_e verbose_level);
 
 /******************************************************************************
  *              Console REPL

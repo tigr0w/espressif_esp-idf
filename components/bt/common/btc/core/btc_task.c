@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -42,9 +42,9 @@
 #if (BTC_L2CAP_INCLUDED == TRUE)
 #include "btc_l2cap.h"
 #endif /* #if (BTC_L2CAP_INCLUDED == TRUE) */
-#if (BTC_SDP_INCLUDED == TRUE)
+#if (BTC_SDP_COMMON_INCLUDED == TRUE)
 #include "btc_sdp.h"
-#endif /* #if (BTC_SDP_INCLUDED == TRUE) */
+#endif /* #if (BTC_SDP_COMMON_INCLUDED == TRUE) */
 #if BTC_HF_INCLUDED
 #include "btc_hf_ag.h"
 #endif/* #if BTC_HF_INCLUDED */
@@ -57,6 +57,9 @@
 #if BTC_HH_INCLUDED == TRUE
 #include "btc_hh.h"
 #endif /* BTC_HH_INCLUDED */
+#if BTC_PBA_CLIENT_INCLUDED
+#include "btc_pba_client.h"
+#endif
 #endif /* #if CLASSIC_BT_INCLUDED */
 #endif
 
@@ -69,6 +72,12 @@
 #include "btc_ble_mesh_prov.h"
 #include "btc_ble_mesh_health_model.h"
 #include "btc_ble_mesh_config_model.h"
+#include "btc_ble_mesh_generic_model.h"
+#include "btc_ble_mesh_lighting_model.h"
+#include "btc_ble_mesh_sensor_model.h"
+#include "btc_ble_mesh_time_scene_model.h"
+#if CONFIG_BLE_MESH_V11_SUPPORT
+#include "btc_ble_mesh_mbt_model.h"
 #include "btc_ble_mesh_agg_model.h"
 #include "btc_ble_mesh_brc_model.h"
 #include "btc_ble_mesh_df_model.h"
@@ -78,11 +87,7 @@
 #include "btc_ble_mesh_rpr_model.h"
 #include "btc_ble_mesh_sar_model.h"
 #include "btc_ble_mesh_srpl_model.h"
-#include "btc_ble_mesh_generic_model.h"
-#include "btc_ble_mesh_lighting_model.h"
-#include "btc_ble_mesh_sensor_model.h"
-#include "btc_ble_mesh_time_scene_model.h"
-#include "btc_ble_mesh_mbt_model.h"
+#endif /* CONFIG_BLE_MESH_V11_SUPPORT */
 #endif /* #if CONFIG_BLE_MESH */
 
 #define BTC_TASK_PINNED_TO_CORE         (TASK_PINNED_TO_CORE)
@@ -98,7 +103,7 @@ osi_thread_t *btc_thread;
 static const btc_func_t profile_tab[BTC_PID_NUM] = {
 #ifdef CONFIG_BT_BLUEDROID_ENABLED
     [BTC_PID_MAIN_INIT]   = {btc_main_call_handler,       NULL                    },
-    [BTC_PID_DEV]         = {btc_dev_call_handler,        NULL                    },
+    [BTC_PID_DEV]         = {btc_dev_call_handler,        btc_dev_cb_handler      },
 #if (GATTS_INCLUDED == TRUE)
     [BTC_PID_GATTS]       = {btc_gatts_call_handler,      btc_gatts_cb_handler    },
 #endif  ///GATTS_INCLUDED == TRUE
@@ -138,9 +143,9 @@ static const btc_func_t profile_tab[BTC_PID_NUM] = {
 #if (BTC_L2CAP_INCLUDED == TRUE)
     [BTC_PID_L2CAP]       = {btc_l2cap_call_handler,      btc_l2cap_cb_handler    },
 #endif /* #if (BTC_L2CAP_INCLUDED == TRUE) */
-#if (BTC_SDP_INCLUDED == TRUE)
+#if (BTC_SDP_COMMON_INCLUDED == TRUE)
     [BTC_PID_SDP]       = {btc_sdp_call_handler,          btc_sdp_cb_handler      },
-#endif /* #if (BTC_SDP_INCLUDED == TRUE) */
+#endif /* #if (BTC_SDP_COMMON_INCLUDED == TRUE) */
 #if BTC_HF_INCLUDED
     [BTC_PID_HF]   = {btc_hf_call_handler,  btc_hf_cb_handler},
 #endif  /* #if BTC_HF_INCLUDED */
@@ -152,6 +157,9 @@ static const btc_func_t profile_tab[BTC_PID_NUM] = {
 #endif
 #if BTC_HH_INCLUDED
     [BTC_PID_HH]          = {btc_hh_call_handler,          btc_hh_cb_handler      },
+#endif
+#if BTC_PBA_CLIENT_INCLUDED
+    [BTC_PID_PBA_CLIENT]  = {btc_pba_client_call_handler,  btc_pba_client_cb_handler},
 #endif
 #endif /* #if CLASSIC_BT_INCLUDED */
 #endif
@@ -208,7 +216,7 @@ static const btc_func_t profile_tab[BTC_PID_NUM] = {
     [BTC_PID_RPR_CLIENT]        = {btc_ble_mesh_rpr_client_call_handler,        btc_ble_mesh_rpr_client_cb_handler       },
 #endif /* CONFIG_BLE_MESH_RPR_CLI */
 #if CONFIG_BLE_MESH_RPR_SRV
-    [BTC_PID_RPR_SERVER]        = {NULL,                                        btc_ble_mesh_rpr_server_cb_handler       },
+    [BTC_PID_RPR_SERVER]        = {btc_ble_mesh_rpr_server_call_handler,        btc_ble_mesh_rpr_server_cb_handler       },
 #endif /* CONFIG_BLE_MESH_RPR_SRV */
 #if CONFIG_BLE_MESH_SAR_CLI
     [BTC_PID_SAR_CLIENT]        = {btc_ble_mesh_sar_client_call_handler,        btc_ble_mesh_sar_client_cb_handler       },
@@ -252,9 +260,9 @@ static const btc_func_t profile_tab[BTC_PID_NUM] = {
 #if CONFIG_BLE_MESH_MBT_SRV
     [BTC_PID_MBT_SERVER]        = {btc_ble_mesh_mbt_server_call_handler,        btc_ble_mesh_mbt_server_cb_handler       },
 #endif /* CONFIG_BLE_MESH_MBT_SRV */
-#if CONFIG_BLE_MESH_BLE_COEX_SUPPORT
+#if CONFIG_BLE_MESH_BLE_COEX_SUPPORT || CONFIG_BLE_MESH_USE_BLE_50
     [BTC_PID_BLE_MESH_BLE_COEX] = {btc_ble_mesh_ble_call_handler,               btc_ble_mesh_ble_cb_handler              },
-#endif /* CONFIG_BLE_MESH_BLE_COEX_SUPPORT */
+#endif /* CONFIG_BLE_MESH_BLE_COEX_SUPPORT || CONFIG_BLE_MESH_USE_BLE_50 */
 #endif /* #if CONFIG_BLE_MESH */
 };
 
@@ -295,8 +303,8 @@ static bt_status_t btc_task_post(btc_msg_t *msg, uint32_t timeout)
 /**
  * transfer an message to another module in the different task.
  * @param  msg       message
- * @param  arg       paramter
- * @param  arg_len   length of paramter
+ * @param  arg       parameter
+ * @param  arg_len   length of parameter
  * @param  copy_func deep copy function
  * @param  free_func deep free function
  * @return           BT_STATUS_SUCCESS: success
@@ -342,7 +350,7 @@ bt_status_t btc_transfer_context(btc_msg_t *msg, void *arg, int arg_len, btc_arg
 }
 
 /**
- * transfer an message to another module in tha same task.
+ * transfer an message to another module in the same task.
  * @param  msg       message
  * @return           BT_STATUS_SUCCESS: success
  *                   others: fail
@@ -380,7 +388,7 @@ static void btc_deinit_mem(void) {
         btc_profile_cb_tab = NULL;
     }
 
-#if (BLE_INCLUDED == TRUE)
+#if (BLE_42_FEATURE_SUPPORT == TRUE)
     if (gl_bta_adv_data_ptr) {
         osi_free(gl_bta_adv_data_ptr);
         gl_bta_adv_data_ptr = NULL;
@@ -390,7 +398,7 @@ static void btc_deinit_mem(void) {
         osi_free(gl_bta_scan_rsp_data_ptr);
         gl_bta_scan_rsp_data_ptr = NULL;
     }
-#endif  ///BLE_INCLUDED == TRUE
+#endif // BLE_42_FEATURE_SUPPORT
 
 #if GATTS_INCLUDED == TRUE && GATT_DYNAMIC_MEMORY == TRUE
     if (btc_creat_tab_env_ptr) {
@@ -403,6 +411,13 @@ static void btc_deinit_mem(void) {
         blufi_env_ptr = NULL;
     }
 #endif
+#endif
+
+#if BTC_HF_INCLUDED == TRUE && HFP_DYNAMIC_MEMORY == TRUE
+    if (hf_local_param_ptr) {
+        osi_free(hf_local_param_ptr);
+        hf_local_param_ptr = NULL;
+    }
 #endif
 
 #if BTC_HF_CLIENT_INCLUDED == TRUE && HFP_DYNAMIC_MEMORY == TRUE
@@ -435,7 +450,8 @@ static bt_status_t btc_init_mem(void) {
     }
     memset((void *)btc_profile_cb_tab, 0, sizeof(void *) * BTC_PID_NUM);
 
-#if (BLE_INCLUDED == TRUE)
+#if BTC_DYNAMIC_MEMORY == TRUE
+#if (BLE_42_FEATURE_SUPPORT == TRUE)
     if ((gl_bta_adv_data_ptr = (tBTA_BLE_ADV_DATA *)osi_malloc(sizeof(tBTA_BLE_ADV_DATA))) == NULL) {
         goto error_exit;
     }
@@ -445,7 +461,8 @@ static bt_status_t btc_init_mem(void) {
         goto error_exit;
     }
     memset((void *)gl_bta_scan_rsp_data_ptr, 0, sizeof(tBTA_BLE_ADV_DATA));
-#endif  ///BLE_INCLUDED == TRUE
+#endif // (BLE_42_FEATURE_SUPPORT == TRUE)
+#endif // BTC_DYNAMIC_MEMORY == TRUE
 
 #if GATTS_INCLUDED == TRUE && GATT_DYNAMIC_MEMORY == TRUE
     if ((btc_creat_tab_env_ptr = (esp_btc_creat_tab_t *)osi_malloc(sizeof(esp_btc_creat_tab_t))) == NULL) {
@@ -458,6 +475,13 @@ static bt_status_t btc_init_mem(void) {
     }
     memset((void *)blufi_env_ptr, 0, sizeof(tBLUFI_ENV));
 #endif
+#endif
+
+#if BTC_HF_INCLUDED == TRUE && HFP_DYNAMIC_MEMORY == TRUE
+    if ((hf_local_param_ptr = (hf_local_param_t *)osi_malloc(BTC_HF_NUM_CB * sizeof(hf_local_param_t))) == NULL) {
+        goto error_exit;
+    }
+    memset((void *)hf_local_param_ptr, 0, BTC_HF_NUM_CB * sizeof(hf_local_param_t));
 #endif
 
 #if BTC_HF_CLIENT_INCLUDED == TRUE && HFP_DYNAMIC_MEMORY == TRUE

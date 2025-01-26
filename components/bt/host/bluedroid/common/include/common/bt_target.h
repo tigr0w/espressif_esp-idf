@@ -73,6 +73,11 @@
 #define SDP_INCLUDED                TRUE
 #define BTA_DM_QOS_INCLUDED         TRUE
 
+#define ENC_KEY_SIZE_CTRL_MODE_NONE 0
+#define ENC_KEY_SIZE_CTRL_MODE_STD  1
+#define ENC_KEY_SIZE_CTRL_MODE_VSC  2
+#define ENC_KEY_SIZE_CTRL_MODE      UC_BT_ENC_KEY_SIZE_CTRL_MODE
+
 #if (UC_BT_A2DP_ENABLED == TRUE)
 #define BTA_AR_INCLUDED             TRUE
 #define BTA_AV_INCLUDED             TRUE
@@ -86,6 +91,11 @@
 #define SBC_DEC_INCLUDED            TRUE
 #define BTC_AV_SRC_INCLUDED         TRUE
 #define SBC_ENC_INCLUDED            TRUE
+#if UC_BT_AVRCP_CT_COVER_ART_ENABLED
+#define BTA_AV_CA_INCLUDED          TRUE
+#define BTC_AV_CA_INCLUDED          TRUE
+#define AVRC_CA_INCLUDED            TRUE
+#endif /* UC_BT_AVRCP_CT_COVER_ART_ENABLED */
 #endif /* UC_BT_A2DP_ENABLED */
 
 #if (UC_BT_SPP_ENABLED == TRUE)
@@ -98,9 +108,12 @@
 #if (UC_BT_L2CAP_ENABLED == TRUE)
 #define BTA_JV_INCLUDED             TRUE
 #define BTC_L2CAP_INCLUDED          TRUE
-#define BTC_SDP_INCLUDED            TRUE
 #define VND_BT_JV_BTA_L2CAP         TRUE
 #endif /* UC_BT_L2CAP_ENABLED */
+
+#if (UC_BT_SDP_COMMON_ENABLED == TRUE)
+#define BTC_SDP_COMMON_INCLUDED     TRUE
+#endif /* UC_BT_SDP_COMMON_ENABLED */
 
 #if (UC_BT_HFP_AG_ENABLED == TRUE) || (UC_BT_HFP_CLIENT_ENABLED == TRUE)
 #ifndef RFCOMM_INCLUDED
@@ -163,6 +176,23 @@
 #define BTC_HD_INCLUDED             TRUE
 #endif /* UC_BT_HID_DEVICE_ENABLED */
 
+#if UC_BT_GOEPC_ENABLED
+#ifndef RFCOMM_INCLUDED
+#define RFCOMM_INCLUDED             TRUE
+#endif
+#ifndef OBEX_INCLUDED
+#define OBEX_INCLUDED               TRUE
+#endif
+#define GOEPC_INCLUDED              TRUE
+#endif /* UC_BT_GOEPC_ENABLED */
+
+#if UC_BT_PBAC_ENABLED
+#define BTC_PBA_CLIENT_INCLUDED     TRUE
+#define BTC_PBA_SUPPORTED_FEAT      UC_BT_PBAC_SUPPORTED_FEAT
+#define BTC_PBA_PREFERRED_MTU       UC_BT_PBAC_PREFERRED_MTU
+#define BTA_PBA_CLIENT_INCLUDED     TRUE
+#endif
+
 #endif /* UC_BT_CLASSIC_ENABLED */
 
 /* This is set to enable use of GAP L2CAP connections. */
@@ -195,11 +225,16 @@
 #define BLE_50_FEATURE_SUPPORT   FALSE
 #endif
 
+#if (UC_BT_BLE_ENABLED ==TRUE)
 #if (UC_BT_BLE_42_FEATURES_SUPPORTED == TRUE || BLE_50_FEATURE_SUPPORT == FALSE)
 #define BLE_42_FEATURE_SUPPORT   TRUE
 #else
 #define BLE_42_FEATURE_SUPPORT   FALSE
 #endif
+#else
+#define BLE_42_FEATURE_SUPPORT   FALSE
+#define BLE_50_FEATURE_SUPPORT   FALSE
+#endif /* UC_BT_BLE_ENABLED */
 
 #if (UC_BT_BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
 #define BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER   TRUE
@@ -285,6 +320,18 @@
 #define SMP_SLAVE_CON_PARAMS_UPD_ENABLE     FALSE
 #endif /* UC_BT_SMP_SLAVE_CON_PARAMS_UPD_ENABLE */
 
+#if (UC_BT_BLE_SMP_ID_RESET_ENABLE)
+#define BLE_SMP_ID_RESET_ENABLE          TRUE
+#else
+#define BLE_SMP_ID_RESET_ENABLE          FALSE
+#endif
+
+#if (UC_BT_BLE_SMP_BOND_NVS_FLASH)
+#define BLE_SMP_BOND_NVS_FLASH      TRUE
+#else
+#define BLE_SMP_BOND_NVS_FLASH      FALSE
+#endif
+
 #ifdef UC_BTDM_BLE_ADV_REPORT_FLOW_CTRL_SUPP
 #define BLE_ADV_REPORT_FLOW_CONTROL         (UC_BTDM_BLE_ADV_REPORT_FLOW_CTRL_SUPP && BLE_INCLUDED)
 #endif /* UC_BTDM_BLE_ADV_REPORT_FLOW_CTRL_SUPP */
@@ -362,6 +409,10 @@
 #define BTC_AV_INCLUDED FALSE
 #endif
 
+#ifndef BTC_AV_CA_INCLUDED
+#define BTC_AV_CA_INCLUDED FALSE
+#endif
+
 #ifndef BTC_AV_SINK_INCLUDED
 #define BTC_AV_SINK_INCLUDED FALSE
 #endif
@@ -433,6 +484,10 @@
 
 #ifndef BTA_AV_INCLUDED
 #define BTA_AV_INCLUDED FALSE
+#endif
+
+#ifndef BTA_AV_CA_INCLUDED
+#define BTA_AV_CA_INCLUDED FALSE
 #endif
 
 #ifndef BTA_AV_SINK_INCLUDED
@@ -564,7 +619,7 @@
 #define BT_CLASSIC_BQB_INCLUDED FALSE
 #endif
 
-/* This feature is used to eanble interleaved scan*/
+/* This feature is used to enable interleaved scan*/
 #ifndef BTA_HOST_INTERLEAVE_SEARCH
 #define BTA_HOST_INTERLEAVE_SEARCH FALSE
 #endif
@@ -894,18 +949,14 @@
 #define BTM_DEFAULT_SCO_MODE        2
 #endif
 
-/* The number of security records for peer devices. 100 AS Default*/
+/* The number of security records for peer devices. 15 AS Default*/
 #ifndef BTM_SEC_MAX_DEVICE_RECORDS
-#if SMP_INCLUDED == TRUE
-#define BTM_SEC_MAX_DEVICE_RECORDS  15 // 100
-#else
-#define BTM_SEC_MAX_DEVICE_RECORDS  8
-#endif /* SMP_INCLUDED == TRUE */
+#define BTM_SEC_MAX_DEVICE_RECORDS  UC_BT_SMP_MAX_BONDS
 #endif
 
 /* The number of security records for services. 32 AS Default*/
 #ifndef BTM_SEC_MAX_SERVICE_RECORDS
-#define BTM_SEC_MAX_SERVICE_RECORDS 8 // 32
+#define BTM_SEC_MAX_SERVICE_RECORDS 32
 #endif
 
 /* If True, force a retrieval of remote device name for each bond in case it's changed */
@@ -1280,7 +1331,7 @@
 #ifdef CONFIG_IDF_TARGET_ESP32
 #define BTM_BLE_ADV_TX_POWER {-12, -9, -6, -3, 0, 3, 6, 9}
 #else
-#define BTM_BLE_ADV_TX_POWER {-24, -21, -18, -15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 21}
+#define BTM_BLE_ADV_TX_POWER {-24, -21, -18, -15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 20}
 #endif
 #endif
 
@@ -1288,7 +1339,7 @@
 #ifdef CONFIG_IDF_TARGET_ESP32
 #define BTM_TX_POWER {-12, -9, -6, -3, 0, 3, 6, 9}
 #else
-#define BTM_TX_POWER {-24, -21, -18, -15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 21}
+#define BTM_TX_POWER {-24, -21, -18, -15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 20}
 #endif
 #endif
 
@@ -1384,7 +1435,7 @@
 #define GATT_CONFORMANCE_TESTING           FALSE
 #endif
 
-/* number of background connection device allowence, ideally to be the same as WL size
+/* number of background connection device allowance, ideally to be the same as WL size
 */
 #ifndef GATT_MAX_BG_CONN_DEV
 #define GATT_MAX_BG_CONN_DEV        8 /*MAX is 32*/
@@ -1493,7 +1544,7 @@
 
 /* The maximum number of attributes in each record. */
 #ifndef SDP_MAX_REC_ATTR
-#if (defined(HID_DEV_INCLUDED) && (HID_DEV_INCLUDED==TRUE)) || (defined(BTC_SDP_INCLUDED) && (BTC_SDP_INCLUDED==TRUE))
+#if (defined(HID_DEV_INCLUDED) && (HID_DEV_INCLUDED==TRUE)) || (defined(BTC_SDP_COMMON_INCLUDED) && (BTC_SDP_COMMON_INCLUDED==TRUE))
 #define SDP_MAX_REC_ATTR            25
 #else
 #define SDP_MAX_REC_ATTR            8
@@ -1799,6 +1850,26 @@
 #define OBX_FCR_TX_POOL_ID                3
 #endif
 
+/* Maximum OBEX connection allowed */
+#ifndef OBEX_MAX_CONNECTION
+#define OBEX_MAX_CONNECTION               3
+#endif
+
+/* Maximum OBEX server allowed */
+#ifndef OBEX_MAX_SERVER
+#define OBEX_MAX_SERVER                   2
+#endif
+
+/******************************************************************************
+**
+** GOEP
+**
+******************************************************************************/
+
+/* Maximum GOEP client connection allowed */
+#ifndef GOEPC_MAX_CONNECTION
+#define GOEPC_MAX_CONNECTION              3
+#endif
 
 /******************************************************************************
 **
@@ -2132,6 +2203,20 @@
 #endif
 
 /*************************************************************************
+** Definitions for OBEX
+*/
+#ifndef OBEX_INCLUDED
+#define OBEX_INCLUDED            FALSE
+#endif
+
+/*************************************************************************
+** Definitions for OBEX
+*/
+#ifndef GOEPC_INCLUDED
+#define GOEPC_INCLUDED            FALSE
+#endif
+
+/*************************************************************************
  * A2DP Definitions
  */
 #ifndef A2D_INCLUDED
@@ -2167,6 +2252,10 @@
 ******************************************************************************/
 #ifndef AVRC_INCLUDED
 #define AVRC_INCLUDED               FALSE
+#endif
+
+#ifndef AVRC_CA_INCLUDED
+#define AVRC_CA_INCLUDED            FALSE
 #endif
 
 #ifndef AVRC_METADATA_INCLUDED
@@ -2369,12 +2458,6 @@ The maximum number of payload octets that the local device can receive in a sing
 /* Enable/disable BTSnoop memory logging */
 #ifndef BTSNOOP_MEM
 #define BTSNOOP_MEM FALSE
-#endif
-
-#if UC_HEAP_ALLOCATION_FROM_SPIRAM_FIRST
-#define HEAP_ALLOCATION_FROM_SPIRAM_FIRST TRUE
-#else
-#define HEAP_ALLOCATION_FROM_SPIRAM_FIRST FALSE
 #endif
 
 #include "common/bt_trace.h"

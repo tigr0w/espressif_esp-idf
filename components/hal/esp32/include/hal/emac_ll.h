@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -87,19 +87,6 @@ extern "C" {
 #define EMAC_LL_DMA_ARBITRATION_ROUNDROBIN_RXTX_2_1 (1)
 #define EMAC_LL_DMA_ARBITRATION_ROUNDROBIN_RXTX_3_1 (2)
 #define EMAC_LL_DMA_ARBITRATION_ROUNDROBIN_RXTX_4_1 (3)
-
-/* PTP register bits */
-#define EMAC_LL_DMAPTPRXDESC_PTPMT_SYNC 0x00000100U                      /* SYNC message (all clock types) */
-#define EMAC_LL_DMAPTPRXDESC_PTPMT_FOLLOWUP 0x00000200U                  /* FollowUp message (all clock types) */
-#define EMAC_LL_DMAPTPRXDESC_PTPMT_DELAYREQ 0x00000300U                  /* DelayReq message (all clock types) */
-#define EMAC_LL_DMAPTPRXDESC_PTPMT_DELAYRESP 0x00000400U                 /* DelayResp message (all clock types) */
-#define EMAC_LL_DMAPTPRXDESC_PTPMT_PDELAYREQ_ANNOUNCE 0x00000500U        /* PdelayReq message (peer-to-peer transparent clock) or Announce message (Ordinary or Boundary clock) */
-#define EMAC_LL_DMAPTPRXDESC_PTPMT_PDELAYRESP_MANAG 0x00000600U          /* PdelayResp message (peer-to-peer transparent clock) or Management message (Ordinary or Boundary clock)  */
-#define EMAC_LL_DMAPTPRXDESC_PTPMT_PDELAYRESPFOLLOWUP_SIGNAL 0x00000700U /* PdelayRespFollowUp message (peer-to-peer transparent clock) or Signaling message (Ordinary or Boundary clock) */
-
-#define EMAC_LL_DMAPTPRXDESC_IPPT_UDP 0x00000001U  /* UDP payload encapsulated in the IP datagram */
-#define EMAC_LL_DMAPTPRXDESC_IPPT_TCP 0x00000002U  /* TCP payload encapsulated in the IP datagram */
-#define EMAC_LL_DMAPTPRXDESC_IPPT_ICMP 0x00000003U /* ICMP payload encapsulated in the IP datagram */
 
 #define EMAC_LL_DMADESC_OWNER_CPU  (0)
 #define EMAC_LL_DMADESC_OWNER_DMA  (1)
@@ -437,6 +424,11 @@ static inline void emac_ll_recv_store_forward_enable(emac_dma_dev_t *dma_regs, b
     dma_regs->dmaoperation_mode.rx_store_forward = enable;
 }
 
+static inline bool emac_ll_recv_store_forward_is_enabled(emac_dma_dev_t *dma_regs)
+{
+    return dma_regs->dmaoperation_mode.rx_store_forward;
+}
+
 static inline void emac_ll_flush_recv_frame_enable(emac_dma_dev_t *dma_regs, bool enable)
 {
     dma_regs->dmaoperation_mode.dis_flush_recv_frames = !enable;
@@ -598,6 +590,15 @@ static inline void emac_ll_receive_poll_demand(emac_dma_dev_t *dma_regs, uint32_
 /*************** End of dma regs operation *********************/
 
 /************** Start of ext regs operation ********************/
+
+static inline eth_data_interface_t emac_ll_get_phy_intf(emac_ext_dev_t *ext_regs)
+{
+    if (ext_regs->ex_phyinf_conf.phy_intf_sel == 4) {
+        return EMAC_DATA_INTERFACE_RMII;
+    }
+    return EMAC_DATA_INTERFACE_MII;
+}
+
 static inline void emac_ll_clock_enable_mii(emac_ext_dev_t *ext_regs)
 {
     /* 0 for mii mode */

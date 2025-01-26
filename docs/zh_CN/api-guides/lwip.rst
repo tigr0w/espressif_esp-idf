@@ -31,9 +31,9 @@ ESP-IDF 间接支持以下常见的 lwIP 应用程序 API：
 
     lwIP 中的 DNS 服务器配置为全局配置，而非针对特定接口的配置。如需同时使用不同 DNS 服务器的多个网络接口，在从一个接口获取 DHCP 租约时，请注意避免意外覆盖另一个接口的 DNS 设置。
 
-- 简单网络时间协议 (SNTP)，由 :doc:`/api-reference/network/esp_netif` 功能间接支持，或通过 :component_file:`lwip/include/apps/esp_sntp.h` 中的函数直接支持。该函数还为 :component_file:`lwip/lwip/src/include/lwip/apps/sntp.h` 函数提供了线程安全的 API，请参阅 :ref:`system-time-sntp-sync`。
+- 简单网络时间协议 (SNTP)，由 :doc:`/api-reference/network/esp_netif` 功能间接支持，或通过 :component_file:`lwip/include/apps/esp_sntp.h` 中的函数直接支持。该函数还为 :component_file:`lwip/lwip/src/include/lwip/apps/sntp.h` 函数提供了线程安全的 API，请参阅 :ref:`system-time-sntp-sync`。有关详细信息，请见 :example:`protocols/sntp`。该示例演示了如何使用 LwIP SNTP 模块从互联网服务器获取时间、配置同步方法与时间间隔，并使用 SNTP-over-DHCP 模块检索时间。
 - ICMP Ping，由 lwIP ping API 的变体支持，请参阅 :doc:`/api-reference/protocols/icmp_echo`。
-- ICMPv6 Ping，由 lwIP 的 ICMPv6 Echo API 支持，用于测试 IPv6 网络连接情况。有关详细信息，请参阅 :example:`protocols/sockets/icmpv6_ping`。
+- ICMPv6 Ping，由 lwIP 的 ICMPv6 Echo API 支持，用于测试 IPv6 网络连接情况。有关详细信息，请参阅 :example:`protocols/sockets/icmpv6_ping`。该示例演示了如何使用网络接口发现 IPv6 地址，创建原始 ICMPv6 套接字，向目标 IPv6 地址发送 ICMPv6 Echo 请求，并等待目标返回 Echo 回复。
 - NetBIOS 查找，由标准的 lwIP API 支持，:example:`protocols/http_server/restful_server` 示例中提供了使用 NetBIOS 在局域网中查找主机的选项。
 - mDNS 与 lwIP 的默认 mDNS 使用不同实现方式，请参阅 :doc:`/api-reference/protocols/mdns`。但启用 :ref:`CONFIG_LWIP_DNS_SUPPORT_MDNS_QUERIES` 设置项后，lwIP 可以使用 ``gethostbyname()`` 等标准 API 和 ``hostname.local`` 约定查找 mDNS 主机。
 - lwIP 中的 PPP 实现可用于在 ESP-IDF 中创建 PPPoS（串行 PPP）接口。请参阅 :doc:`/api-reference/network/esp_netif` 组件文档，使用 :component_file:`esp_netif/include/esp_netif_defaults.h` 中定义的 ``ESP_NETIF_DEFAULT_PPP()`` 宏创建并配置 PPP 网络接口。:component_file:`esp_netif/include/esp_netif_ppp.h` 中提供了其他的运行时设置。PPPoS 接口通常用于与 NBIoT/GSM/LTE 调制解调器交互。`esp_modem <https://components.espressif.com/component/espressif/esp_modem>`_ 仓库还支持更多应用层友好的 API，该仓库内部使用了上述 PPP lwIP 模块。
@@ -43,7 +43,7 @@ BSD 套接字 API
 
 BSD 套接字 API 是一种常见的跨平台 TCP/IP 套接字 API，最初源于 UNIX 操作系统的伯克利标准发行版，现已标准化为 POSIX 规范的一部分。BSD 套接字有时也称 POSIX 套接字，或伯克利套接字。
 
-在 ESP-IDF 中，lwIP 支持 BSD 套接字 API 的所有常见用法。
+在 ESP-IDF 中，lwIP 支持 BSD 套接字 API 的所有常见用法。然而，并非所有操作都完全线程安全，因此多个线程同时进行读写可能需要额外的同步机制。详情请参见 :ref:`lwip-limitations`。
 
 参考
 ^^^^^^^^^^
@@ -58,12 +58,19 @@ BSD 套接字的相关参考资料十分丰富，包括但不限于：
 
 以下为 ESP-IDF 中使用 BSD 套接字 API 的部分示例：
 
-- :example:`protocols/sockets/tcp_server`
-- :example:`protocols/sockets/tcp_client`
-- :example:`protocols/sockets/udp_server`
-- :example:`protocols/sockets/udp_client`
-- :example:`protocols/sockets/udp_multicast`
-- :example:`protocols/http_request`：此简化示例使用 TCP 套接字发送 HTTP 请求，但更推荐使用 :doc:`/api-reference/protocols/esp_http_client` 发送 HTTP 请求
+- :example:`protocols/sockets/non_blocking` 演示了如何配置和运行一个支持 IPv4 和 IPv6 协议的非阻塞 TCP 客户端和服务器。
+
+- :example:`protocols/sockets/tcp_server` 演示了如何创建一个 TCP 服务器，该服务器可以接受客户端的连接请求并接收数据。
+
+- :example:`protocols/sockets/tcp_client` 演示了如何创建一个 TCP 客户端，该客户端使用预定义的 IP 地址和端口连接到服务器。
+
+- :example:`protocols/sockets/tcp_client_multi_net` 演示了如何同时使用以太网和 Wi-Fi 接口连接，在每个接口上创建一个 TCP 客户端，并发送一个简单的 HTTP 请求和响应。
+
+- :example:`protocols/sockets/udp_server` 演示了如何创建一个 UDP 服务器，该服务器可以接收客户端的连接请求和数据。
+
+- :example:`protocols/sockets/udp_client` 演示了如何创建一个 UDP 客户端，该客户端使用预定义的 IP 地址和端口连接到服务器。
+
+- :example:`protocols/sockets/udp_multicast` 演示了如何通过 BSD 风格的套接字接口使用 IPV4 和 IPV6 的 UDP 组播功能。
 
 支持的函数
 ^^^^^^^^^^^^^^^^^^^
@@ -166,7 +173,7 @@ BSD 套接字的相关参考资料十分丰富，包括但不限于：
 套接字错误原因代码
 ++++++++++++++++++++++++
 
-以下是常见错误代码列表。有关标准 POSIX/C 错误代码的详细列表，请参阅 `newlib errno.h <https://github.com/espressif/newlib-esp32/blob/master/newlib/libc/include/sys/errno.h>`_ 和特定平台扩展 :component_file:`newlib/platform_include/errno.h`。
+以下是常见错误代码列表。获取标准 POSIX/C 错误代码的详细列表，请参阅 `newlib errno.h <https://github.com/espressif/newlib-esp32/blob/master/newlib/libc/include/sys/errno.h>`_ 和特定平台扩展 :component_file:`newlib/platform_include/sys/errno.h`。
 
 .. list-table::
     :header-rows: 1
@@ -419,6 +426,14 @@ IP 层特性
 
 - 支持 IPV4 映射 IPV6 地址
 
+NAPT 和端口转发
+++++++++++++++++++++++++
+
+支持 IPv4 网络地址端口转换（NAPT）和端口转发。然而，仅限于单个接口启用 NAPT。
+
+- 要在两个接口之间使用 NAPT 转发数据包，必须在连接到目标网络的接口上启用 NAPT。例如，为了通过 Wi-Fi 接口为以太网流量启用互联网访问，必须在以太网接口上启用 NAPT。
+- NAPT 的使用示例可参考 :example:`network/vlan_support`。
+
 .. _lwip-custom-hooks:
 
 自定义 lwIP 钩子
@@ -446,10 +461,20 @@ IP 层特性
 
 另一种方法是在头文件中定义函数式宏，该头文件将预先包含在 lwIP 钩子文件中，请参考 :ref:`lwip-custom-hooks`。
 
+.. _lwip-limitations:
+
 限制
 ^^^^^^^^^^^
 
+在 ESP-IDF 中，lwIP 在某些场景下线程安全，但存在一定的限制。在 lwIP 中，可以在同一套接字上由多个线程同时分别执行读、写和关闭操作，但不支持在同一套接字上由多个线程同时执行多个读操作或多个写操作。如果应用程序需要在多个线程中同时对同一套接字进行读、写操作，就需要额外的同步机制来确保线程安全。例如，在套接字操作周围加锁。
+
 如 :ref:`lwip-dns-limitation` 所述，ESP-IDF 中的 lwIP 扩展功能仍然受到全局 DNS 限制的影响。为了在应用程序代码中解决这一限制，可以使用 ``FALLBACK_DNS_SERVER_ADDRESS()`` 宏定义所有接口能够访问的全局 DNS 备用服务器，或者单独维护每个接口的 DNS 服务器，并在默认接口更改时重新配置。
+
+通过网络数据库 API 返回的 IP 地址数量受限：``getaddrinfo()`` 和 ``gethostbyname()`` 受到宏 ``DNS_MAX_HOST_IP`` 的限制，宏的默认值为 1。
+
+在调用 ``getaddrinfo()`` 函数时，不会返回规范名称。因此，第一个返回的 ``addrinfo`` 结构中的 ``ai_canonname`` 字段仅包含 ``nodename`` 参数或相同内容的字符串。
+
+ESP-IDF 中 lwIP 的 ``getaddrinfo()`` 系统调用在使用 ``AF_UNSPEC`` 时存在限制：双栈模式下默认只返回 IPv4 地址，因此在仅支持 IPv6 的网络中可能会出现问题。为了解决这个问题，可以通过以下方法进行处理：分别调用两次 ``getaddrinfo()``，第一次使用 ``AF_INET`` 查询 IPv4 地址，第二次使用 ``AF_INET6`` 查询 IPv6 地址。为了进一步优化，lwIP 移植层中新增了自定义函数 ``esp_getaddrinfo()``，该函数在使用 ``AF_UNSPEC`` 时能够同时处理 IPv4 和 IPv6 地址。同时启用 IPv4 和 IPv6 后，可通过 :ref:`CONFIG_LWIP_USE_ESP_GETADDRINFO` 选项选择使用自定义的 ``esp_getaddrinfo()`` 或默认的 ``getaddrinfo()`` 实现。``esp_getaddrinfo()`` 默认处于禁用状态。
 
 在 UDP 套接字上重复调用 ``send()`` 或 ``sendto()`` 最终可能会导致错误。此时 ``errno`` 报错为 ``ENOMEM``，错误原因是底层网络接口驱动程序中的 buffer 大小有限。当所有驱动程序的传输 buffer 已满时，UDP 传输事务失败。如果应用程序需要发送大量 UDP 数据报，且不希望发送方丢弃数据报，建议检查错误代码，采用短延迟的重传机制。
 
@@ -471,9 +496,7 @@ IP 层特性
 最大吞吐量
 ^^^^^^^^^^^^^^^^^^
 
-在 :example:`wifi/iperf` 示例中，乐鑫测试了在射频密封的封闭环境下 ESP-IDF 的 TCP/IP 吞吐量。
-
-iperf 示例下的 :example_file:`wifi/iperf/sdkconfig.defaults` 文件包含已知可最大化 TCP/IP 吞吐量的设置，但该设置会占用更多 RAM。要牺牲其他性能，在应用程序中最大化 TCP/IP 吞吐量，建议将该示例文件中的设置应用到项目的 sdkconfig 文件中。
+乐鑫使用 iperf 测试应用程序 https://iperf.fr/ 测试了 ESP-IDF 的 TCP/IP 吞吐量。关于实际测试和优化配置的更多信息，请参考 :ref:`improve-network-speed`。
 
 .. important::
 
@@ -505,6 +528,7 @@ iperf 示例下的 :example_file:`wifi/iperf/sdkconfig.defaults` 文件包含已
 
 - 减少 :ref:`CONFIG_LWIP_MAX_SOCKETS` 可以减少系统中的最大套接字数量。更改此设置，会让处于 ``WAIT_CLOSE`` 状态的 TCP 套接字在需要打开新套接字时更快地关闭和复用，进一步降低峰值 RAM 使用量。
 - 减少 :ref:`CONFIG_LWIP_TCPIP_RECVMBOX_SIZE`、:ref:`CONFIG_LWIP_TCP_RECVMBOX_SIZE` 和 :ref:`CONFIG_LWIP_UDP_RECVMBOX_SIZE` 可以减少 RAM 使用量，但会影响吞吐量，具体取决于使用情况。
+- 减少 :ref:`CONFIG_LWIP_TCP_ACCEPTMBOX_SIZE` 可以通过限制同时接受的连接数来减少 RAM 使用量。
 - 减少 :ref:`CONFIG_LWIP_TCP_MSL` 和 :ref:`CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT` 可以减少系统中的最大分段寿命，同时会使处于 ``TIME_WAIT`` 和 ``FIN_WAIT_2`` 状态的 TCP 套接字能更快地关闭和复用。
 - 禁用 :ref:`CONFIG_LWIP_IPV6` 可以在系统启动时节省大约 39 KB 的固件大小和 2 KB 的 RAM，并在运行 TCP/IP 栈时节省 7 KB 的 RAM。如果无需支持 IPV6，可以禁用 IPv6，减少 flash 和 RAM 占用。
 - 禁用 :ref:`CONFIG_LWIP_IPV4` 可以在系统启动时节省大约 26 KB 的固件大小和 600 B 的 RAM，并在运行 TCP/IP 栈时节省 6 KB 的 RAM。如果本地网络仅支持 IPv6 配置，可以禁用 IPv4，减少 flash 和 RAM 占用。

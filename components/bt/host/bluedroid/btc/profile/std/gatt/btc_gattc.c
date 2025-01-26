@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
 
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -212,9 +212,12 @@ static void btc_gattc_app_unregister(btc_ble_gattc_args_t *arg)
 static void btc_gattc_open(btc_ble_gattc_args_t *arg)
 {
     tBTA_GATT_TRANSPORT transport = BTA_GATT_TRANSPORT_LE;
-    BTA_GATTC_Open(arg->open.gattc_if, arg->open.remote_bda,
+
+    BTA_GATTC_Enh_Open(arg->open.gattc_if, arg->open.remote_bda,
                    arg->open.remote_addr_type, arg->open.is_direct,
-                   transport, arg->open.is_aux);
+                   transport, arg->open.is_aux, arg->open.own_addr_type,
+                   arg->open.phy_mask, (void *)&arg->open.phy_1m_conn_params,
+                   (void *)&arg->open.phy_2m_conn_params, (void *)&arg->open.phy_coded_conn_params);
 }
 
 static void btc_gattc_close(btc_ble_gattc_args_t *arg)
@@ -926,6 +929,7 @@ void btc_gattc_cb_handler(btc_msg_t *msg)
     }
     case BTA_GATTC_CONNECT_EVT: {
         tBTA_GATTC_CONNECT *connect = &arg->connect;
+#if (SMP_INCLUDED == TRUE)
         bt_bdaddr_t bt_addr;
 
         memcpy(bt_addr.address, connect->remote_bda, sizeof(bt_addr.address));
@@ -935,7 +939,7 @@ void btc_gattc_cb_handler(btc_msg_t *msg)
                             bt_addr.address[2], bt_addr.address[3],
                             bt_addr.address[4], bt_addr.address[5]);
         }
-
+#endif  ///SMP_INCLUDED == TRUE
         gattc_if = connect->client_if;
         param.connect.conn_id = BTC_GATT_GET_CONN_ID(connect->conn_id);
         param.connect.link_role = connect->link_role;

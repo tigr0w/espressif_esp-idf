@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2018-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2018-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,10 +7,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#if __has_include(<bsd/string.h>)
-// for strlcpy
-#include <bsd/string.h>
-#endif
 #include <sys/param.h>
 #include <esp_log.h>
 #include <esp_err.h>
@@ -89,8 +85,8 @@ static esp_err_t verify_url (http_parser *parser)
     strlcpy((char *)r->uri, at, (length + 1));
     ESP_LOGD(TAG, LOG_FMT("received URI = %s"), r->uri);
 
-    /* Make sure version is HTTP/1.1 */
-    if ((parser->http_major != 1) && (parser->http_minor != 1)) {
+    /* Make sure version is HTTP/1.1 or HTTP/1.0 (legacy compliance purpose) */
+    if (!((parser->http_major == 1) && ((parser->http_minor == 0) || (parser->http_minor == 1)))) {
         ESP_LOGW(TAG, LOG_FMT("unsupported HTTP version = %d.%d"),
                  parser->http_major, parser->http_minor);
         parser_data->error = HTTPD_505_VERSION_NOT_SUPPORTED;
@@ -110,7 +106,7 @@ static esp_err_t verify_url (http_parser *parser)
 }
 
 /* http_parser callback on finding url in HTTP request
- * Will be invoked ATLEAST once every packet
+ * Will be invoked AT LEAST once every packet
  */
 static esp_err_t cb_url(http_parser *parser,
                         const char *at, size_t length)
@@ -195,7 +191,7 @@ static size_t continue_parsing(http_parser *parser, size_t length)
 }
 
 /* http_parser callback on header field in HTTP request
- * May be invoked ATLEAST once every header field
+ * May be invoked AT LEAST once every header field
  */
 static esp_err_t cb_header_field(http_parser *parser, const char *at, size_t length)
 {
@@ -254,7 +250,7 @@ static esp_err_t cb_header_field(http_parser *parser, const char *at, size_t len
 }
 
 /* http_parser callback on header value in HTTP request.
- * May be invoked ATLEAST once every header value
+ * May be invoked AT LEAST once every header value
  */
 static esp_err_t cb_header_value(http_parser *parser, const char *at, size_t length)
 {
@@ -920,6 +916,11 @@ size_t httpd_req_get_url_query_len(httpd_req_t *r)
         return 0;
     }
 
+    if (r->uri[0] == '\0') {
+        ESP_LOGD(TAG, "uri is empty");
+        return 0;
+    }
+
     struct httpd_req_aux   *ra  = r->aux;
     struct http_parser_url *res = &ra->url_parse_res;
 
@@ -938,6 +939,11 @@ esp_err_t httpd_req_get_url_query_str(httpd_req_t *r, char *buf, size_t buf_len)
 
     if (!httpd_valid_req(r)) {
         return ESP_ERR_HTTPD_INVALID_REQ;
+    }
+
+    if (r->uri[0] == '\0') {
+        ESP_LOGD(TAG, "uri is empty");
+        return ESP_FAIL;
     }
 
     struct httpd_req_aux   *ra  = r->aux;

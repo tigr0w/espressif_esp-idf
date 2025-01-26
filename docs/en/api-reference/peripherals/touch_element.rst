@@ -6,7 +6,11 @@ Touch Element
 Overview
 --------
 
-The Touch Element Library is a highly abstracted element library designed on the basis of the touch sensor driver. The library provides a unified and user-friendly software interface to quickly build capacitive touch sensor applications. For more information about the touch sensor driver API, see :doc:`../peripherals/touch_pad`.
+The Touch Element Library is a highly abstracted element library designed on the basis of the touch sensor driver. The library provides a unified and user-friendly software interface to quickly build capacitive touch sensor applications.
+
+.. warning::
+
+    The Touch Element Library currently is still based on the legacy touch driver. Please refer to the :doc:`new driver of Capacitive Touch Sensor </api-reference/peripherals/cap_touch_sens>` if you don't need the Touch Element Library.
 
 Architecture
 ^^^^^^^^^^^^
@@ -443,17 +447,21 @@ The Touch Element Wakeup example is available in `system/light_sleep` directory.
 
         // ESP_ERROR_CHECK(touch_element_enable_light_sleep(&sleep_config));
         ESP_ERROR_CHECK(touch_element_enable_deep_sleep(button_handle[0], &sleep_config));
-        // ESP_ERROR_CHECK(touch_element_sleep_enable_wakeup_calibration(button_handle[0], false)); // (optional) Disable wakeup calibration to prevent updating the baseline to a wrong value
+        // ESP_ERROR_CHECK(touch_element_sleep_enable_wakeup_calibration(button_handle[0], false)); // (optional) Disable wakeup calibration to prevent updating the benchmark to a wrong value
 
         touch_element_start();
 
         ...
     }
 
-Application Example
--------------------
+Application Examples
+--------------------
 
-All the Touch Element library examples could be found in the :example:`peripherals/touch_sensor/touch_element` directory of ESP-IDF examples.
+- :example:`peripherals/touch_sensor/touch_element/touch_element_waterproof` demonstrates how to use the Touch Element library to set up capacitive touch sensors with waterproof protection.
+- :example:`peripherals/touch_sensor/touch_element/touch_slider` demonstrates how to use the Touch Element library to set up and operate a touch slider.
+- :example:`peripherals/touch_sensor/touch_element/touch_elements_combination` demonstrates how to use the Touch Element library to set up multiple types of touch elements and handle all the event messages in one task.
+- :example:`peripherals/touch_sensor/touch_element/touch_matrix` demonstrates how to use the Touch Element library to set up and use a touch matrix with a capacitive touch sensor on {IDF_TARGET_NAME} development boards.
+- :example:`peripherals/touch_sensor/touch_element/touch_button` demonstrates how to use the Touch Element library to set up and use a touch button on {IDF_TARGET_NAME} development boards.
 
 
 API Reference - Touch Element Core

@@ -16,7 +16,7 @@ menu "Main Flash configuration"
         config SPI_FLASH_BROWNOUT_RESET
             bool
             default y
-            select ESP_SYSTEM_BROWNOUT_INTR
+            select ESP_BROWNOUT_USE_INTR
             help
                 When brownout happens during flash erase/write operations,
                 send reset command to stop the flash operations to improve stability.
@@ -36,11 +36,11 @@ menu "Main Flash configuration"
         choice SPI_FLASH_HPM
             prompt "High Performance Mode (READ DOCS FIRST, > 80MHz)"
             # Currently, only esp32s3 allows high performance mode.
-            depends on IDF_TARGET_ESP32S3 && !ESPTOOLPY_OCT_FLASH
+            depends on (IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32P4) && !ESPTOOLPY_OCT_FLASH
             default SPI_FLASH_HPM_AUTO
             help
                 Whether the High Performance Mode of Flash is enabled. As an optional feature, user needs to manually
-                enable this option as a confirmation. To be back-compatible with earlier IDF versionn, this option is
+                enable this option as a confirmation. To be back-compatible with earlier IDF version, this option is
                 automatically enabled with warning when Flash running > 80Mhz.
 
             config SPI_FLASH_HPM_ENA
@@ -56,7 +56,7 @@ menu "Main Flash configuration"
         config SPI_FLASH_HPM_ON
             bool
             # For ESP32-S3, it's enabled by default. For later chips it should be disabled by default
-            default y if IDF_TARGET_ESP32S3 && ((SPI_FLASH_HPM_ENA || SPI_FLASH_HPM_AUTO)) || \
+            default y if (IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32P4) && ((SPI_FLASH_HPM_ENA || SPI_FLASH_HPM_AUTO)) || \
                 (!IDF_TARGET_ESP32S3 && SPI_FLASH_HPM_ENA)
             help
                 This option is invisible, and will be selected automatically
@@ -83,17 +83,10 @@ menu "Main Flash configuration"
                 This is a helper config for HPM. Whether HPM-DC is enabled is also determined by bootloader.
                 Invisible for users.
 
-        config SPI_FLASH_SUSPEND_QVL_SUPPORTED
-            bool
-            default y if IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32C2
-            default n
-            help
-                This is a helper config. Invisible for users.
-
         config SPI_FLASH_AUTO_SUSPEND
             bool "Auto suspend long erase/write operations (READ DOCS FIRST)"
             default n
-            depends on SPI_FLASH_SUSPEND_QVL_SUPPORTED && !SPI_FLASH_ROM_IMPL
+            depends on SOC_SPI_MEM_SUPPORT_AUTO_SUSPEND && !SPI_FLASH_ROM_IMPL
             help
                 This option is disabled by default because it is supported only
                 for specific flash chips and for specific Espressif chips.
@@ -115,6 +108,51 @@ menu "Main Flash configuration"
             help
                 This config is used for setting Tsus parameter. Tsus means CS# high to next command after
                 suspend. You can refer to the chapter of AC CHARACTERISTICS of flash datasheet.
+
+        config SPI_FLASH_FORCE_ENABLE_XMC_C_SUSPEND
+            bool "Enable XMC-C series flash chip suspend feature anyway"
+            default n
+            help
+                XMC-C series is regarded as not qualified for the Suspend feature, since its specification
+                has a tRS >= 1ms restriction. We strongly do not suggest using it for the Suspend feature.
+                However, if your product in field has enabled this feature, you may still enable this
+                config option to keep the legacy behavior.
+
+                For new users, DO NOT enable this config.
+
+        config SPI_FLASH_SOFTWARE_RESUME
+            bool "Resume flash program/erase form suspend state by software control"
+            default n
+            depends on SPI_FLASH_AUTO_SUSPEND && FREERTOS_UNICORE && IDF_EXPERIMENTAL_FEATURES
+            help
+                Enable this config will disable auto-resume from hardware. Thus the software will resume the chip
+                after any higher priority task/interrupt which suspend the chip. The benefit is that the suspend-resume
+                will not disturb the higher priority task and interrupt.
+
+                This currently is only valid on single core chip.
+
+        config SPI_FLASH_DISABLE_SCHEDULER_IN_SUSPEND
+            bool "Disable task scheduler when suspend is enabled when SPI1 operation is ongoing"
+            default n
+            # Only valid on single core because no protection is supported on multi core
+            depends on SPI_FLASH_AUTO_SUSPEND && FREERTOS_UNICORE
+            help
+                Disable freertos task scheduler when CONFIG_SPI_FLASH_AUTO_SUSPEND is enabled.
+                Thus only interrupt can trigger a suspend. When SPI_FLASH_AUTO_SUSPEND is enabled,
+                default behavior is not disable the task scheduler, so both interrupt and high priority
+                task can suspend the erase/program operation. When this option is enabled, task
+                scheduler is disabled, only interrupt can suspend erase/program operation.
+
+        config SPI_FLASH_AUTO_CHECK_SUSPEND_STATUS
+            bool "Check flash status automatically after flash suspend"
+            default n
+            depends on SPI_FLASH_AUTO_SUSPEND
+            help
+                Majority flash supports to use flash register to judge if flash suspend status is
+                done or not. So enable this config, the behavior would use flash register WIP bit to judge
+                whether suspend is valid instead of waiting for a specific long time, which can save a
+                lot of time and benefit for performance improvement.
+
 
     endmenu
 endmenu
@@ -250,7 +288,7 @@ menu "SPI Flash driver"
             Please use this configuration together with ``SPI_FLASH_ERASE_YIELD_DURATION_MS`` and
             ``SPI_FLASH_ERASE_YIELD_TICKS`` after carefully checking flash datasheet to avoid a
             watchdog timeout.
-            For more information, please check `SPI Flash API` reference documenation
+            For more information, please check `SPI Flash API` reference documentation
             under section `OS Function`.
 
     config SPI_FLASH_ERASE_YIELD_DURATION_MS
@@ -352,7 +390,7 @@ menu "SPI Flash driver"
 
         config SPI_FLASH_SUPPORT_BOYA_CHIP
             bool "BOYA"
-            # ESP32 doens't usually use this chip, default n to save iram.
+            # ESP32 doesn't usually use this chip, default n to save iram.
             default y if SPI_FLASH_VENDOR_BOYA_SUPPORTED
             default n
             help
@@ -362,7 +400,7 @@ menu "SPI Flash driver"
 
         config SPI_FLASH_SUPPORT_TH_CHIP
             bool "TH"
-            # ESP32 doens't usually use this chip, default n to save iram.
+            # ESP32 doesn't usually use this chip, default n to save iram.
             default y if SPI_FLASH_VENDOR_TH_SUPPORTED
             default n
             help

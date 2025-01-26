@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -28,6 +28,7 @@ extern "C" {
 #define LCD_LL_CLK_FRAC_DIV_N_MAX  256 // LCD_CLK = LCD_CLK_S / (N + b/a), the N register is 8 bit-width
 #define LCD_LL_CLK_FRAC_DIV_AB_MAX 64  // LCD_CLK = LCD_CLK_S / (N + b/a), the a/b register is 6 bit-width
 #define LCD_LL_PCLK_DIV_MAX        64  // LCD_PCLK = LCD_CLK / MO, the MO register is 6 bit-width
+#define LCD_LL_FIFO_DEPTH          16  // Async FIFO depth
 
 /**
  * @brief LCD data byte swizzle mode
@@ -37,9 +38,10 @@ typedef enum {
 } lcd_ll_swizzle_mode_t;
 
 /**
- * @brief Enable or disable the bus clock for the LCD module
+ * @brief Enable the bus clock for LCD module
  *
- * @param set_bit True to set bit, false to clear bit
+ * @param group_id Group ID
+ * @param enable true to enable, false to disable
  */
 static inline void lcd_ll_enable_bus_clock(int group_id, bool enable)
 {
@@ -53,6 +55,8 @@ static inline void lcd_ll_enable_bus_clock(int group_id, bool enable)
 
 /**
  * @brief Reset the LCD module
+ *
+ * @param group_id Group ID
  */
 static inline void lcd_ll_reset_register(int group_id)
 {
@@ -157,7 +161,7 @@ static inline void lcd_ll_set_pixel_clock_edge(lcd_cam_dev_t *dev, bool active_o
 __attribute__((always_inline))
 static inline void lcd_ll_set_pixel_clock_prescale(lcd_cam_dev_t *dev, uint32_t prescale)
 {
-    HAL_ASSERT(prescale <= LCD_LL_PCLK_DIV_MAX);
+    HAL_ASSERT(prescale > 0 && prescale <= LCD_LL_PCLK_DIV_MAX);
     // Formula: pixel_clk = lcd_clk / (1 + clkcnt_n)
     // clkcnt_n can't be zero
     uint32_t scale = 1;
@@ -343,8 +347,12 @@ static inline void lcd_ll_set_phase_cycles(lcd_cam_dev_t *dev, uint32_t cmd_cycl
     dev->lcd_user.lcd_dummy = (dummy_cycles > 0);
     dev->lcd_user.lcd_dout = (data_cycles > 0);
     dev->lcd_user.lcd_cmd_2_cycle_en = cmd_cycles > 1;
-    dev->lcd_user.lcd_dummy_cyclelen = dummy_cycles - 1;
-    dev->lcd_user.lcd_dout_cyclelen = data_cycles - 1;
+    if (dummy_cycles > 0) {
+        dev->lcd_user.lcd_dummy_cyclelen = dummy_cycles - 1;
+    }
+    if (data_cycles > 0) {
+        dev->lcd_user.lcd_dout_cyclelen = data_cycles - 1;
+    }
 }
 
 /**
@@ -357,8 +365,12 @@ static inline void lcd_ll_set_phase_cycles(lcd_cam_dev_t *dev, uint32_t cmd_cycl
 static inline void lcd_ll_set_blank_cycles(lcd_cam_dev_t *dev, uint32_t fk_cycles, uint32_t bk_cycles)
 {
     dev->lcd_misc.lcd_bk_en = (fk_cycles || bk_cycles);
-    dev->lcd_misc.lcd_vfk_cyclelen = fk_cycles - 1;
-    dev->lcd_misc.lcd_vbk_cyclelen = bk_cycles - 1;
+    if (fk_cycles > 0) {
+        dev->lcd_misc.lcd_vfk_cyclelen = fk_cycles - 1;
+    }
+    if (bk_cycles > 0) {
+        dev->lcd_misc.lcd_vbk_cyclelen = bk_cycles - 1;
+    }
 }
 
 /**
@@ -567,7 +579,7 @@ static inline void lcd_ll_set_command(lcd_cam_dev_t *dev, uint32_t data_width, u
 }
 
 /**
- * @brief Wether to enable RGB interface
+ * @brief Whether to enable RGB interface
  *
  * @param dev LCD register base address
  * @param en True to enable RGB interface, False to disable RGB interface
@@ -590,7 +602,7 @@ static inline void lcd_ll_enable_auto_next_frame(lcd_cam_dev_t *dev, bool en)
 }
 
 /**
- * @brief Wether to output HSYNC signal in porch resion
+ * @brief Whether to output HSYNC signal in porch region
  *
  * @param dev LCD register base address
  * @param en True to enable, False to disable
@@ -722,7 +734,7 @@ static inline uint32_t lcd_ll_get_interrupt_status(lcd_cam_dev_t *dev)
  * @brief Clear interrupt status by mask
  *
  * @param dev LCD register base address
- * @param mask Interupt status mask
+ * @param mask Interrupt status mask
  */
 __attribute__((always_inline))
 static inline void lcd_ll_clear_interrupt_status(lcd_cam_dev_t *dev, uint32_t mask)

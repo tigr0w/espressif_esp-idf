@@ -2,7 +2,7 @@
 
 /*
  * SPDX-FileCopyrightText: 2017 Intel Corporation
- * SPDX-FileContributor: 2018-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2018-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -30,7 +30,9 @@
 #include "prov_pvnr.h"
 #include "pvnr_mgmt.h"
 
+#if CONFIG_BLE_MESH_V11_SUPPORT
 #include "mesh_v1.1/utils.h"
+#endif
 
 static bool mesh_init = false;
 
@@ -109,6 +111,11 @@ void bt_mesh_node_reset(void)
         return;
     }
 
+    if (bt_mesh_prov_active()) {
+        BT_WARN("%s, link is still active", __func__);
+        return;
+    }
+
     bt_mesh.iv_index = 0U;
     bt_mesh.seq = 0U;
 
@@ -156,9 +163,9 @@ void bt_mesh_node_reset(void)
         bt_mesh_clear_seq();
         bt_mesh_clear_dkca();
         bt_mesh_clear_role();
-        if (IS_ENABLED(CONFIG_BLE_MESH_DF_SRV)) {
-            bt_mesh_clear_all_directed_forwarding_table_data();
-        }
+#if CONFIG_BLE_MESH_DF_SRV
+        bt_mesh_clear_all_directed_forwarding_table_data();
+#endif
     }
 
     memset(bt_mesh.flags, 0, sizeof(bt_mesh.flags));
@@ -400,12 +407,14 @@ int bt_mesh_init(const struct bt_mesh_prov *prov,
         return -EALREADY;
     }
 
+#if CONFIG_BLE_MESH_V11_SUPPORT
     extern int bt_mesh_v11_ext_init(void);
     err = bt_mesh_v11_ext_init();
     if (err) {
         BT_ERR("Bluetooth Mesh v1.1 init failed");
         return err;
     }
+#endif
 
     bt_mesh_mutex_init();
 
@@ -432,7 +441,9 @@ int bt_mesh_init(const struct bt_mesh_prov *prov,
 
     if ((IS_ENABLED(CONFIG_BLE_MESH_PROVISIONER) &&
         IS_ENABLED(CONFIG_BLE_MESH_PB_GATT)) ||
-        IS_ENABLED(CONFIG_BLE_MESH_GATT_PROXY_CLIENT)) {
+        IS_ENABLED(CONFIG_BLE_MESH_GATT_PROXY_CLIENT) ||
+        (IS_ENABLED(CONFIG_BLE_MESH_RPR_SRV) &&
+        IS_ENABLED(CONFIG_BLE_MESH_PB_GATT))) {
         bt_mesh_proxy_client_init();
     }
 
@@ -582,7 +593,9 @@ int bt_mesh_deinit(struct bt_mesh_deinit_param *param)
 
     if ((IS_ENABLED(CONFIG_BLE_MESH_PROVISIONER) &&
          IS_ENABLED(CONFIG_BLE_MESH_PB_GATT)) ||
-        IS_ENABLED(CONFIG_BLE_MESH_GATT_PROXY_CLIENT)) {
+        IS_ENABLED(CONFIG_BLE_MESH_GATT_PROXY_CLIENT) ||
+        (IS_ENABLED(CONFIG_BLE_MESH_RPR_SRV) &&
+        IS_ENABLED(CONFIG_BLE_MESH_PB_GATT))) {
         bt_mesh_proxy_client_deinit();
     }
 

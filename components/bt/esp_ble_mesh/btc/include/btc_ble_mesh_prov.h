@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2017-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -341,6 +341,7 @@ typedef union {
     } model_unsub_group_addr;
     struct ble_mesh_deinit_args {
         esp_ble_mesh_deinit_param_t param;
+        SemaphoreHandle_t semaphore;
     } mesh_deinit;
 } btc_ble_mesh_prov_args_t;
 

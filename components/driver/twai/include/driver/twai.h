@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -18,19 +18,31 @@ extern "C" {
 #endif
 
 /* -------------------- Default initializers and flags ---------------------- */
+
 /** @cond */    //Doxy command to hide preprocessor definitions from docs
+
+/**
+ * @brief Initializer macro for general configuration structure.
+ *
+ * This initializer macros allows the controller ID, TX GPIO, RX GPIO, and operating
+ * mode to be configured. The other members of the general configuration structure are
+ * assigned default values.
+ */
+#define TWAI_GENERAL_CONFIG_DEFAULT_V2(controller_num, tx_io_num, rx_io_num, op_mode) {.controller_id = controller_num,             \
+                                                                    .mode = op_mode, .tx_io = tx_io_num, .rx_io = rx_io_num,        \
+                                                                    .clkout_io = TWAI_IO_UNUSED, .bus_off_io = TWAI_IO_UNUSED,      \
+                                                                    .tx_queue_len = 5, .rx_queue_len = 5,                           \
+                                                                    .alerts_enabled = TWAI_ALERT_NONE,  .clkout_divider = 0,        \
+                                                                    .intr_flags = ESP_INTR_FLAG_LEVEL1, .general_flags = {0}}
+
 /**
  * @brief Initializer macro for general configuration structure.
  *
  * This initializer macros allows the TX GPIO, RX GPIO, and operating mode to be
- * configured. The other members of the general configuration structure are
- * assigned default values.
+ * configured. Controller ID is set to 0 and he other members of the general configuration
+ * structure are assigned default values.
  */
-#define TWAI_GENERAL_CONFIG_DEFAULT(tx_io_num, rx_io_num, op_mode) {.mode = op_mode, .tx_io = tx_io_num, .rx_io = rx_io_num,        \
-                                                                    .clkout_io = TWAI_IO_UNUSED, .bus_off_io = TWAI_IO_UNUSED,      \
-                                                                    .tx_queue_len = 5, .rx_queue_len = 5,                           \
-                                                                    .alerts_enabled = TWAI_ALERT_NONE,  .clkout_divider = 0,        \
-                                                                    .intr_flags = ESP_INTR_FLAG_LEVEL1}
+#define TWAI_GENERAL_CONFIG_DEFAULT(tx_io_num, rx_io_num, op_mode) TWAI_GENERAL_CONFIG_DEFAULT_V2(0, tx_io_num, rx_io_num, op_mode)
 
 /**
  * @brief   Alert flags
@@ -102,6 +114,12 @@ typedef struct {
     uint32_t alerts_enabled;        /**< Bit field of alerts to enable (see documentation) */
     uint32_t clkout_divider;        /**< CLKOUT divider. Can be 1 or any even number from 2 to 14 (optional, set to 0 if unused) */
     int intr_flags;                 /**< Interrupt flags to set the priority of the driver's ISR. Note that to use the ESP_INTR_FLAG_IRAM, the CONFIG_TWAI_ISR_IN_IRAM option should be enabled first. */
+    struct {
+        uint32_t sleep_allow_pd;    /**< Set to allow power down. When this flag set, the driver will backup/restore the TWAI registers before/after entering/exist sleep mode.
+                                         By this approach, the system can power off TWAI's power domain.
+                                         This can save power, but at the expense of more RAM being consumed. */
+    } general_flags;                /**< General flags */
+    // Ensure TWAI_GENERAL_CONFIG_DEFAULT_V2 is updated and in order if new fields are added
 } twai_general_config_t;
 
 /**

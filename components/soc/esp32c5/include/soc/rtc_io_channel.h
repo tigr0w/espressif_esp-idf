@@ -1,13 +1,11 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-// TODO: [ESP32C5] IDF-8719 (inherit from C6)
-//RTC GPIO channels
 #define RTCIO_GPIO0_CHANNEL         0   //RTCIO_CHANNEL_0
 #define RTCIO_CHANNEL_0_GPIO_NUM    0
 

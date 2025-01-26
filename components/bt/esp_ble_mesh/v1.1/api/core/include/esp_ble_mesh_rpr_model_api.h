@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -238,6 +238,11 @@ typedef union {
     esp_ble_mesh_rpr_link_report_t      link_report;        /*!< For ESP_BLE_MESH_MODEL_OP_RPR_LINK_REPORT */
 } esp_ble_mesh_rpr_client_recv_cb_t;
 
+/** This enum value is the event type of the performed action */
+typedef enum {
+    ESP_BLE_MESH_START_RPR_COMP_SUB_EVT,
+} esp_ble_mesh_rpr_client_act_evt_t;
+
 /** Remote Provisioning Client model callback parameters */
 typedef union {
     /** Event parameters of sending messages */
@@ -252,10 +257,7 @@ typedef union {
     } recv;                                             /*!< Event parameters of receiving messages */
     /** Event parameters of performed actions */
     struct {
-        /** Event type of the performed action */
-        enum {
-            ESP_BLE_MESH_START_RPR_COMP_SUB_EVT,
-        } sub_evt;                                      /*!< Event type of the performed action */
+        esp_ble_mesh_rpr_client_act_evt_t sub_evt;      /*!< Event type of the performed action */
         /**
          * @brief ESP_BLE_MESH_START_RPR_COMP_SUB_EVT
          */
@@ -394,6 +396,13 @@ typedef union {
         uint16_t net_idx;                               /*!< NetKey Index used by Remote Provisioning Client */
         uint16_t rpr_cli_addr;                          /*!< Unicast address of Remote Provisioning Client */
     } prov_comp;
+
+    /**
+     * @brief ESP_BLE_MESH_RPR_SERVER_SET_UUID_MATCH_COMP_EVT
+    */
+    struct {
+        int err_code;                                   /*!< Indicate the result of setting Device UUID match value by the Remote Provisioning Server */
+    } set_uuid_match_comp;
 } esp_ble_mesh_rpr_server_cb_param_t;
 
 /** This enum value is the event of Remote Provisioning Server model */
@@ -405,6 +414,7 @@ typedef enum {
     ESP_BLE_MESH_RPR_SERVER_LINK_OPEN_EVT,
     ESP_BLE_MESH_RPR_SERVER_LINK_CLOSE_EVT,
     ESP_BLE_MESH_RPR_SERVER_PROV_COMP_EVT,
+    ESP_BLE_MESH_RPR_SERVER_SET_UUID_MATCH_COMP_EVT,
     ESP_BLE_MESH_RPR_SERVER_EVT_MAX,
 } esp_ble_mesh_rpr_server_cb_event_t;
 
@@ -471,6 +481,18 @@ typedef void (* esp_ble_mesh_rpr_server_cb_t)(esp_ble_mesh_rpr_server_cb_event_t
  *
  */
 esp_err_t esp_ble_mesh_register_rpr_server_callback(esp_ble_mesh_rpr_server_cb_t callback);
+
+/**
+ * @brief         This function is called by Remote Provisioning Server to set the part of
+ *                the device UUID to be compared before starting to remote provision.
+ *
+ * @param[in]     match_val: Value to be compared with the part of the device UUID.
+ * @param[in]     match_len: Length of the compared match value.
+ * @param[in]     offset: Offset of the device UUID to be compared (based on zero).
+ *
+ * @return        ESP_OK on success or error code otherwise.
+*/
+esp_err_t esp_ble_mesh_rpr_server_set_uuid_match(const uint8_t *match_val, uint8_t match_len, uint8_t offset);
 
 #ifdef __cplusplus
 }

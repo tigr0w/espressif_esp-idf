@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2016-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2016-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,7 +17,7 @@
 #include "esp_timer.h"
 #include "esp_intr_alloc.h"
 #include "driver/rtc_io.h"
-#include "driver/touch_pad.h"
+#include "driver/touch_sensor_legacy.h"
 #include "esp_private/rtc_ctrl.h"
 #include "driver/gpio.h"
 #include "esp_check.h"
@@ -27,7 +27,7 @@
 #define INVARIANTS
 #endif
 #include "sys/queue.h"
-#include "hal/touch_sensor_types.h"
+#include "hal/touch_sensor_legacy_types.h"
 #include "hal/touch_sensor_hal.h"
 
 typedef struct {
@@ -108,9 +108,9 @@ static void touch_pad_filter_cb(void *arg)
             _touch_pad_read(i, &val, mode);
             s_touch_pad_filter->raw_val[i] = val;
             s_touch_pad_filter->filter_last_val[i] = s_touch_pad_filter->filter_last_val[i] == 0 ?
-                ((uint32_t)val << TOUCH_PAD_SHIFT_DEFAULT) : s_touch_pad_filter->filter_last_val[i];
+                                                     ((uint32_t)val << TOUCH_PAD_SHIFT_DEFAULT) : s_touch_pad_filter->filter_last_val[i];
             s_touch_pad_filter->filter_last_val[i] = _touch_filter_iir((val << TOUCH_PAD_SHIFT_DEFAULT),
-                s_touch_pad_filter->filter_last_val[i], TOUCH_PAD_FILTER_FACTOR_DEFAULT);
+                                                                       s_touch_pad_filter->filter_last_val[i], TOUCH_PAD_FILTER_FACTOR_DEFAULT);
             s_touch_pad_filter->filtered_val[i] =
                 (s_touch_pad_filter->filter_last_val[i] + TOUCH_PAD_SHIFT_ROUND_DEFAULT) >> TOUCH_PAD_SHIFT_DEFAULT;
         }
@@ -301,7 +301,7 @@ esp_err_t touch_pad_config(touch_pad_t touch_num, uint16_t threshold)
 
         //If the FSM mode is 'TOUCH_FSM_MODE_TIMER', The data will be ready after one measurement cycle
         //after this function is executed, otherwise, the "touch_value" by "touch_pad_read" is 0.
-        wait_time_ms = sleep_time / (rtc_clk_freq / 1000) + meas_cycle / (SOC_CLK_RC_FAST_FREQ_APPROX / 1000);
+        wait_time_ms = (uint32_t)(sleep_time / ((float)rtc_clk_freq / 1000.0)) + meas_cycle / (SOC_CLK_RC_FAST_FREQ_APPROX / 1000);
         wait_tick = wait_time_ms / portTICK_PERIOD_MS;
         vTaskDelay(wait_tick ? wait_tick : 1);
         s_touch_pad_init_bit |= (1 << touch_num);
@@ -512,7 +512,9 @@ esp_err_t touch_pad_filter_delete(void)
     esp_err_t ret = ESP_OK;
     xSemaphoreTake(rtc_touch_mux, portMAX_DELAY);
     if (s_touch_pad_filter->timer) {
-        ESP_GOTO_ON_ERROR(esp_timer_stop(s_touch_pad_filter->timer), err, TOUCH_TAG, "failed to stop the timer");
+        if (esp_timer_is_active(s_touch_pad_filter->timer)) {
+            ESP_GOTO_ON_ERROR(esp_timer_stop(s_touch_pad_filter->timer), err, TOUCH_TAG, "failed to stop the timer");
+        }
         ESP_GOTO_ON_ERROR(esp_timer_delete(s_touch_pad_filter->timer), err, TOUCH_TAG, "failed to delete the timer");
         s_touch_pad_filter->timer = NULL;
     }
@@ -522,3 +524,19 @@ err:
     xSemaphoreGive(rtc_touch_mux);
     return ret;
 }
+
+#if !CONFIG_TOUCH_SKIP_LEGACY_CONFLICT_CHECK
+/**
+ * @brief This function will be called during start up, to check that the new touch driver is not running along with the legacy touch driver
+ */
+static __attribute__((constructor)) void check_touch_driver_conflict(void)
+{
+    extern __attribute__((weak)) esp_err_t touch_sensor_new_controller(const void*, void *);
+    /* If the new Touch driver is linked, the weak function will point to the actual function in the new driver, otherwise it is NULL*/
+    if ((void *)touch_sensor_new_controller != NULL) {
+        ESP_EARLY_LOGE("legacy_touch_driver", "CONFLICT! The new touch driver can't work along with the legacy touch driver");
+        abort();
+    }
+    ESP_EARLY_LOGW("legacy_touch_driver", "legacy touch driver is deprecated, please migrate to use driver/touch_sens.h");
+}
+#endif //CONFIG_TOUCH_SKIP_LEGACY_CONFLICT_CHECK

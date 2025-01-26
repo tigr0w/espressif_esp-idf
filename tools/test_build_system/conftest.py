@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 import datetime
 import logging
@@ -11,7 +11,11 @@ from tempfile import mkdtemp
 
 import pytest
 from _pytest.fixtures import FixtureRequest
-from test_build_system_helpers import EXT_IDF_PATH, EnvDict, IdfPyFunc, get_idf_build_env, run_idf_py
+from test_build_system_helpers import EnvDict
+from test_build_system_helpers import EXT_IDF_PATH
+from test_build_system_helpers import get_idf_build_env
+from test_build_system_helpers import IdfPyFunc
+from test_build_system_helpers import run_idf_py
 
 
 # Pytest hook used to check if the test has passed or failed, from a fixture.
@@ -27,7 +31,7 @@ def pytest_runtest_makereport(item: typing.Any, call: typing.Any) -> typing.Gene
 
 def should_clean_test_dir(request: FixtureRequest) -> bool:
     # Only remove the test directory if the test has passed
-    return getattr(request.node, 'passed', False)
+    return getattr(request.node, 'passed', False) or request.config.getoption('cleanup_idf_copy', False)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -36,6 +40,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help='Directory for temporary files. If not specified, an OS-specific '
              'temporary directory will be used.'
     )
+    parser.addoption(
+        '--cleanup-idf-copy', action='store_true',
+        help='Always clean up the IDF copy after the test. By default, the copy is cleaned up only if the test passes.'
+    )
 
 
 @pytest.fixture(scope='session')
@@ -43,7 +51,7 @@ def _session_work_dir(request: FixtureRequest) -> typing.Generator[typing.Tuple[
     work_dir = request.config.getoption('--work-dir')
 
     if work_dir:
-        work_dir = os.path.join(work_dir, datetime.datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S'))
+        work_dir = os.path.join(work_dir, datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d_%H-%M-%S'))
         logging.debug(f'using work directory: {work_dir}')
         os.makedirs(work_dir, exist_ok=True)
         clean_dir = None
@@ -87,7 +95,9 @@ def test_app_copy(func_work_dir: Path, request: FixtureRequest) -> typing.Genera
     # by default, use hello_world app and copy it to a temporary directory with
     # the name resembling that of the test
     copy_from = 'tools/test_build_system/build_test_app'
-    copy_to = request.node.name + '_app'
+    # sanitize test name in case pytest.mark.parametrize was used
+    test_name_sanitized = request.node.name.replace('[', '_').replace(']', '')
+    copy_to = test_name_sanitized + '_app'
 
     # allow overriding source and destination via pytest.mark.test_app_copy()
     mark = request.node.get_closest_marker('test_app_copy')
@@ -123,7 +133,9 @@ def test_app_copy(func_work_dir: Path, request: FixtureRequest) -> typing.Genera
 
 @pytest.fixture
 def test_git_template_app(func_work_dir: Path, request: FixtureRequest) -> typing.Generator[Path, None, None]:
-    copy_to = request.node.name + '_app'
+    # sanitize test name in case pytest.mark.parametrize was used
+    test_name_sanitized = request.node.name.replace('[', '_').replace(']', '')
+    copy_to = test_name_sanitized + '_app'
     path_to = func_work_dir / copy_to
 
     logging.debug(f'cloning git-template app to {path_to}')
@@ -146,7 +158,13 @@ def test_git_template_app(func_work_dir: Path, request: FixtureRequest) -> typin
 
 @pytest.fixture
 def idf_copy(func_work_dir: Path, request: FixtureRequest) -> typing.Generator[Path, None, None]:
-    copy_to = request.node.name + '_idf'
+    # sanitize test name in case pytest.mark.parametrize was used
+    test_name_sanitized = request.node.name.replace('[', '_').replace(']', '')
+    copy_to = test_name_sanitized + '_idf'
+    # allow overriding the destination via pytest.mark.idf_copy_with_space so the destination contain space
+    mark_with_space = request.node.get_closest_marker('idf_copy_with_space')
+    if mark_with_space:
+        copy_to = test_name_sanitized + ' idf'
 
     # allow overriding the destination via pytest.mark.idf_copy()
     mark = request.node.get_closest_marker('idf_copy')
@@ -161,7 +179,8 @@ def idf_copy(func_work_dir: Path, request: FixtureRequest) -> typing.Generator[P
     ignore = shutil.ignore_patterns(
         path_to.name,
         # also ignore the build directories which may be quite large
-        '**/build')
+        # plus ignore .git since it is causing trouble when removing on Windows
+        '**/build', '.git')
 
     logging.debug(f'copying {path_from} to {path_to}')
     shutil.copytree(path_from, path_to, ignore=ignore, symlinks=True)

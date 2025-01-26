@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2010-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2010-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,6 +11,7 @@
 #include "hal/spi_types.h"
 //for spi_bus_initialization functions. to be back-compatible
 #include "driver/spi_common.h"
+#include "soc/soc_caps.h"
 
 /**
  * @brief SPI common used frequency (in Hz)
@@ -77,6 +78,7 @@ typedef struct {
         delay before the MISO is ready on the line. Leave at 0 unless you know you need a delay. For better timing
         performance at high frequency (over 8MHz), it's suggest to have the right value.
         */
+    spi_sampling_point_t sample_point;  ///< Sample point tuning of spi master receiving bit.
     int spics_io_num;               ///< CS GPIO pin for this device, or -1 if not used
     uint32_t flags;                 ///< Bitwise OR of SPI_DEVICE_* flags
     int queue_size;                 ///< Transaction queue size. This sets how many transactions can be 'in the air' (queued using spi_device_queue_trans but not yet finished using spi_device_get_trans_result) at the same time
@@ -165,8 +167,13 @@ typedef struct spi_device_t *spi_device_handle_t;  ///< Handle for a device on a
  * peripheral and routes it to the indicated GPIO. All SPI master devices have three CS pins and can thus control
  * up to three devices.
  *
- * @note While in general, speeds up to 80MHz on the dedicated SPI pins and 40MHz on GPIO-matrix-routed pins are
- *       supported, full-duplex transfers routed over the GPIO matrix only support speeds up to 26MHz.
+ * @note On ESP32, due to the delay of GPIO matrix, the maximum frequency SPI Master can correctly samples the slave's
+ *       output is lower than the case using IOMUX. Typical maximum frequency communicating with an ideal slave
+ *       without data output delay: 80MHz (IOMUX pins) and 26MHz (GPIO matrix pins). With the help of extra dummy
+ *       cycles in half-duplex mode, the delay can be compensated by setting `input_delay_ns` in `dev_config` structure
+ *       correctly.
+ *
+ *       There's no notable delay on chips other than ESP32.
  *
  * @param host_id SPI peripheral to allocate device on
  * @param dev_config SPI interface protocol config for the device
@@ -217,9 +224,9 @@ esp_err_t spi_device_queue_trans(spi_device_handle_t handle, spi_transaction_t *
  * @brief Get the result of a SPI transaction queued earlier by ``spi_device_queue_trans``.
  *
  * This routine will wait until a transaction to the given device
- * succesfully completed. It will then return the description of the
+ * successfully completed. It will then return the description of the
  * completed transaction so software can inspect the result and e.g. free the memory or
- * re-use the buffers.
+ * reuse the buffers.
  *
  * @param handle Device handle obtained using spi_host_add_dev
  * @param trans_desc Pointer to variable able to contain a pointer to the description of the transaction
@@ -280,7 +287,7 @@ esp_err_t spi_device_polling_start(spi_device_handle_t handle, spi_transaction_t
  * @brief Poll until the polling transaction ends.
  *
  * This routine will not return until the transaction to the given device has
- * succesfully completed. The task is not blocked, but actively busy-spins for
+ * successfully completed. The task is not blocked, but actively busy-spins for
  * the transaction to be completed.
  *
  * @param handle Device handle obtained using spi_host_add_dev
@@ -379,7 +386,7 @@ void spi_get_timing(bool gpio_is_used, int input_delay_ns, int eff_clk, int *dum
 /**
   * @brief Get the frequency limit of current configurations.
   *         SPI master working at this limit is OK, while above the limit, full duplex mode and DMA will not work,
-  *         and dummy bits will be aplied in the half duplex mode.
+  *         and dummy bits will be applied in the half duplex mode.
   *
   * @param gpio_is_used True if using GPIO matrix, or False if native pins are used.
   * @param input_delay_ns Input delay from SCLK launch edge to MISO data valid.

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,25 +19,30 @@
 #include "hal/rmt_hal.h"
 #include "hal/dma_types.h"
 #include "hal/cache_ll.h"
+#include "hal/hal_utils.h"
 #include "esp_intr_alloc.h"
 #include "esp_heap_caps.h"
+#include "esp_clk_tree.h"
 #include "esp_pm.h"
 #include "esp_attr.h"
 #include "esp_private/gdma.h"
+#include "esp_private/esp_gpio_reserve.h"
+#include "esp_private/gpio.h"
+#include "esp_private/sleep_retention.h"
 #include "driver/rmt_common.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#if CONFIG_RMT_ISR_IRAM_SAFE || CONFIG_RMT_RECV_FUNC_IN_IRAM
+#if CONFIG_RMT_OBJ_CACHE_SAFE
 #define RMT_MEM_ALLOC_CAPS      (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
 #else
 #define RMT_MEM_ALLOC_CAPS      MALLOC_CAP_DEFAULT
 #endif
 
 // RMT driver object is per-channel, the interrupt source is shared between channels
-#if CONFIG_RMT_ISR_IRAM_SAFE
+#if CONFIG_RMT_ISR_CACHE_SAFE
 #define RMT_INTR_ALLOC_FLAG     (ESP_INTR_FLAG_SHARED | ESP_INTR_FLAG_IRAM)
 #else
 #define RMT_INTR_ALLOC_FLAG     (ESP_INTR_FLAG_SHARED)
@@ -49,9 +54,6 @@ extern "C" {
 
 #define RMT_ALLOW_INTR_PRIORITY_MASK ESP_INTR_FLAG_LOWMED
 
-// DMA buffer size must align to `rmt_symbol_word_t`
-#define RMT_DMA_DESC_BUF_MAX_SIZE      (DMA_DESCRIPTOR_BUFFER_MAX_SIZE & ~(sizeof(rmt_symbol_word_t) - 1))
-
 #define RMT_DMA_NODES_PING_PONG               2  // two nodes ping-pong
 #define RMT_PM_LOCK_NAME_LEN_MAX              16
 #define RMT_GROUP_INTR_PRIORITY_UNINITIALIZED (-1)
@@ -61,10 +63,15 @@ extern "C" {
 typedef dma_descriptor_align4_t rmt_dma_descriptor_t;
 
 #ifdef CACHE_LL_L2MEM_NON_CACHE_ADDR
-#define RMT_GET_NON_CACHE_ADDR(addr) ((addr) ? CACHE_LL_L2MEM_NON_CACHE_ADDR(addr) : 0)
+#define RMT_GET_NON_CACHE_ADDR(addr) (CACHE_LL_L2MEM_NON_CACHE_ADDR(addr))
 #else
 #define RMT_GET_NON_CACHE_ADDR(addr) (addr)
 #endif
+
+#define ALIGN_UP(num, align)    (((num) + ((align) - 1)) & ~((align) - 1))
+#define ALIGN_DOWN(num, align)  ((num) & ~((align) - 1))
+
+#define RMT_USE_RETENTION_LINK  (SOC_RMT_SUPPORT_SLEEP_RETENTION && CONFIG_PM_POWER_DOWN_PERIPHERAL_IN_LIGHT_SLEEP)
 
 typedef struct {
     struct {
@@ -107,7 +114,7 @@ struct rmt_group_t {
     portMUX_TYPE spinlock;      // to protect per-group register level concurrent access
     rmt_hal_context_t hal;      // hal layer for each group
     rmt_clock_source_t clk_src; // record the group clock source, group clock is shared by all channels
-    uint32_t resolution_hz;     // resolution of group clock
+    uint32_t resolution_hz;     // resolution of group clock. clk_src_hz / prescale = resolution_hz
     uint32_t occupy_mask;       // a set bit in the mask indicates the channel is not available
     rmt_tx_channel_t *tx_channels[SOC_RMT_TX_CANDIDATES_PER_GROUP]; // array of RMT TX channels
     rmt_rx_channel_t *rx_channels[SOC_RMT_RX_CANDIDATES_PER_GROUP]; // array of RMT RX channels
@@ -127,7 +134,6 @@ struct rmt_channel_t {
     _Atomic rmt_fsm_t fsm;  // channel life cycle specific FSM
     rmt_channel_direction_t direction; // channel direction
     rmt_symbol_word_t *hw_mem_base;    // base address of RMT channel hardware memory
-    rmt_symbol_word_t *dma_mem_base;   // base address of RMT channel DMA buffer
     gdma_channel_handle_t dma_chan;    // DMA channel
     esp_pm_lock_handle_t pm_lock;      // power management lock
 #if CONFIG_PM_ENABLE
@@ -157,6 +163,8 @@ typedef struct {
 
 struct rmt_tx_channel_t {
     rmt_channel_t base; // channel base class
+    rmt_symbol_word_t *dma_mem_base;    // base address of RMT channel DMA buffer
+    rmt_symbol_word_t *dma_mem_base_nc; // base address of RMT channel DMA buffer, accessed in non-cached way
     size_t mem_off;     // runtime argument, indicating the next writing position in the RMT hardware memory
     size_t mem_end;     // runtime argument, indicating the end of current writing region
     size_t ping_pong_symbols;  // ping-pong size (half of the RMT channel memory)
@@ -184,12 +192,14 @@ typedef struct {
 
 struct rmt_rx_channel_t {
     rmt_channel_t base;                  // channel base class
+    uint32_t filter_clock_resolution_hz; // filter clock resolution, in Hz
     size_t mem_off;                      // starting offset to fetch the symbols in RMT-MEM
     size_t ping_pong_symbols;            // ping-pong size (half of the RMT channel memory)
     rmt_rx_done_callback_t on_recv_done; // callback, invoked on receive done
     void *user_data;                     // user context
     rmt_rx_trans_desc_t trans_desc;      // transaction description
     size_t num_dma_nodes;                // number of DMA nodes, determined by how big the memory block that user configures
+    size_t dma_int_mem_alignment;         // DMA buffer alignment (both in size and address) for internal RX memory
     rmt_dma_descriptor_t *dma_nodes;     // DMA link nodes
     rmt_dma_descriptor_t *dma_nodes_nc;  // DMA descriptor nodes accessed in non-cached way
 };
@@ -210,17 +220,18 @@ rmt_group_t *rmt_acquire_group_handle(int group_id);
 void rmt_release_group_handle(rmt_group_t *group);
 
 /**
- * @brief Set clock source for RMT peripheral
+ * @brief Set clock source and resolution for RMT peripheral
  *
  * @param chan RMT channel handle
  * @param clk_src Clock source
+ * @param expect_channel_resolution Expected channel resolution
  * @return
  *      - ESP_OK: Set clock source successfully
  *      - ESP_ERR_NOT_SUPPORTED: Set clock source failed because the clk_src is not supported
  *      - ESP_ERR_INVALID_STATE: Set clock source failed because the clk_src is different from other RMT channel
  *      - ESP_FAIL: Set clock source failed because of other error
  */
-esp_err_t rmt_select_periph_clock(rmt_channel_handle_t chan, rmt_clock_source_t clk_src);
+esp_err_t rmt_select_periph_clock(rmt_channel_handle_t chan, rmt_clock_source_t clk_src, uint32_t expect_channel_resolution);
 
 /**
  * @brief Set interrupt priority to RMT group
@@ -238,6 +249,13 @@ bool rmt_set_intr_priority_to_group(rmt_group_t *group, int intr_priority);
  * @return isr_flags
  */
 int rmt_get_isr_flags(rmt_group_t *group);
+
+/**
+ * @brief Create sleep retention link
+ *
+ * @param group RMT group handle, returned from `rmt_acquire_group_handle`
+ */
+void rmt_create_retention_module(rmt_group_t *group);
 
 #ifdef __cplusplus
 }

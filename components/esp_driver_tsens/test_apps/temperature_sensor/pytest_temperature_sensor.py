@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: CC0-1.0
-
 import pytest
 from pytest_embedded import Dut
 from pytest_embedded_idf.unity_tester import CaseTester
@@ -12,6 +11,9 @@ from pytest_embedded_idf.unity_tester import CaseTester
 @pytest.mark.esp32c2
 @pytest.mark.esp32c6
 @pytest.mark.esp32h2
+@pytest.mark.esp32p4
+@pytest.mark.esp32c5
+@pytest.mark.esp32c61
 @pytest.mark.generic
 @pytest.mark.parametrize('config', [
     'release',
@@ -22,6 +24,9 @@ def test_temperature_sensor_driver(dut: Dut) -> None:
 
 @pytest.mark.esp32c6
 @pytest.mark.esp32h2
+@pytest.mark.esp32p4
+@pytest.mark.esp32c5
+@pytest.mark.esp32c61
 @pytest.mark.generic
 @pytest.mark.parametrize('config', [
     'iram_safe',
@@ -35,6 +40,7 @@ def test_temperature_sensor_cbs(dut: Dut) -> None:
 @pytest.mark.esp32s3
 @pytest.mark.esp32c2
 @pytest.mark.esp32c6
+@pytest.mark.esp32c61
 @pytest.mark.wifi_two_dut
 @pytest.mark.parametrize('count', [2], indirect=True)
 def test_temperature_phy_cases(case_tester: CaseTester) -> None:  # type: ignore

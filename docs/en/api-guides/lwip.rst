@@ -31,9 +31,9 @@ Some common lwIP app APIs are supported indirectly by ESP-IDF:
 
     DNS server configuration in lwIP is global, not interface-specific. If you are using multiple network interfaces with distinct DNS servers, exercise caution to prevent inadvertent overwrites of one interface's DNS settings when acquiring a DHCP lease from another interface.
 
-- Simple Network Time Protocol (SNTP) is also supported via the :doc:`/api-reference/network/esp_netif`, or directly via the :component_file:`lwip/include/apps/esp_sntp.h` functions, which also provide thread-safe API to :component_file:`lwip/lwip/src/include/lwip/apps/sntp.h` functions, see also :ref:`system-time-sntp-sync`.
+- Simple Network Time Protocol (SNTP) is also supported via the :doc:`/api-reference/network/esp_netif`, or directly via the :component_file:`lwip/include/apps/esp_sntp.h` functions, which also provide thread-safe API to :component_file:`lwip/lwip/src/include/lwip/apps/sntp.h` functions, see also :ref:`system-time-sntp-sync`. For implementation details, see :example:`protocols/sntp`. This example demonstrates how to use the LwIP SNTP module to obtain time from internet servers, configure the synchronization method and interval, and retrieve time using the SNTP-over-DHCP module.
 - ICMP Ping is supported using a variation on the lwIP ping API, see :doc:`/api-reference/protocols/icmp_echo`.
-- ICMPv6 Ping, supported by lwIP's ICMPv6 Echo API, is used to test IPv6 network connectivity. For more information, see :example:`protocols/sockets/icmpv6_ping`.
+- ICMPv6 Ping, supported by lwIP's ICMPv6 Echo API, is used to test IPv6 network connectivity. For more information, see :example:`protocols/sockets/icmpv6_ping`. This example demonstrates how to use the network interface to discover an IPv6 address, create a raw ICMPv6 socket, send an ICMPv6 Echo Request to a destination IPv6 address, and wait for an Echo Reply from the target.
 - NetBIOS lookup is available using the standard lwIP API. :example:`protocols/http_server/restful_server` has the option to demonstrate using NetBIOS to look up a host on the LAN.
 - mDNS uses a different implementation to the lwIP default mDNS, see :doc:`/api-reference/protocols/mdns`. But lwIP can look up mDNS hosts using standard APIs such as ``gethostbyname()`` and the convention ``hostname.local``, provided the :ref:`CONFIG_LWIP_DNS_SUPPORT_MDNS_QUERIES` setting is enabled.
 - The PPP implementation in lwIP can be used to create PPPoS (PPP over serial) interface in ESP-IDF. Please refer to the documentation of the :doc:`/api-reference/network/esp_netif` component to create and configure a PPP network interface, by means of the ``ESP_NETIF_DEFAULT_PPP()`` macro defined in :component_file:`esp_netif/include/esp_netif_defaults.h`. Additional runtime settings are provided via :component_file:`esp_netif/include/esp_netif_ppp.h`. PPPoS interfaces are typically used to interact with NBIoT/GSM/LTE modems. More application-level friendly API is supported by the `esp_modem <https://components.espressif.com/component/espressif/esp_modem>`_ library, which uses this PPP lwIP module behind the scenes.
@@ -43,7 +43,7 @@ BSD Sockets API
 
 The BSD Sockets API is a common cross-platform TCP/IP sockets API that originated in the Berkeley Standard Distribution of UNIX but is now standardized in a section of the POSIX specification. BSD Sockets are sometimes called POSIX Sockets or Berkeley Sockets.
 
-As implemented in ESP-IDF, lwIP supports all of the common usages of the BSD Sockets API.
+As implemented in ESP-IDF, lwIP supports all of the common usages of the BSD Sockets API. However, not all operations are fully thread-safe, and simultaneous reads and writes from multiple threads may require additional synchronization mechanisms, see :ref:`lwip-limitations` for more details.
 
 References
 ^^^^^^^^^^
@@ -53,17 +53,24 @@ A wide range of BSD Sockets reference materials are available, including:
 - `Single UNIX Specification - BSD Sockets page <https://pubs.opengroup.org/onlinepubs/007908799/xnsix.html>`_
 - `Berkeley Sockets - Wikipedia page <https://en.wikipedia.org/wiki/Berkeley_sockets>`_
 
-Examples
-^^^^^^^^
+Application Examples
+^^^^^^^^^^^^^^^^^^^^
 
 A number of ESP-IDF examples show how to use the BSD Sockets APIs:
 
-- :example:`protocols/sockets/tcp_server`
-- :example:`protocols/sockets/tcp_client`
-- :example:`protocols/sockets/udp_server`
-- :example:`protocols/sockets/udp_client`
-- :example:`protocols/sockets/udp_multicast`
-- :example:`protocols/http_request`: this simplified example uses a TCP socket to send an HTTP request, but :doc:`/api-reference/protocols/esp_http_client` is a much better option for sending HTTP requests
+- :example:`protocols/sockets/non_blocking` demonstrates how to configure and run a non-blocking TCP client and server, supporting both IPv4 and IPv6 protocols.
+
+- :example:`protocols/sockets/tcp_server` demonstrates how to create a TCP server that accepts client connection requests and receives data.
+
+- :example:`protocols/sockets/tcp_client` demonstrates how to create a TCP client that connects to a server using a predefined IP address and port.
+
+- :example:`protocols/sockets/tcp_client_multi_net` demonstrates how to use Ethernet and Wi-Fi interfaces together, connect to both simultaneously, create a TCP client for each interface, and send a basic HTTP request and response.
+
+- :example:`protocols/sockets/udp_server` demonstrates how to create a UDP server that receives client connection requests and data.
+
+- :example:`protocols/sockets/udp_client` demonstrates how to create a UDP client that connects to a server using a predefined IP address and port.
+
+- :example:`protocols/sockets/udp_multicast` demonstrates how to use the IPV4 and IPV6 UDP multicast features via the BSD-style sockets interface.
 
 Supported Functions
 ^^^^^^^^^^^^^^^^^^^
@@ -166,7 +173,7 @@ Example:
 Socket Error Reason Code
 ++++++++++++++++++++++++
 
-Below is a list of common error codes. For a more detailed list of standard POSIX/C error codes, please see `newlib errno.h <https://github.com/espressif/newlib-esp32/blob/master/newlib/libc/include/sys/errno.h>`_ and the platform-specific extensions :component_file:`newlib/platform_include/errno.h`.
+Below is a list of common error codes. For a more detailed list of standard POSIX/C error codes, please see `newlib errno.h <https://github.com/espressif/newlib-esp32/blob/master/newlib/libc/include/sys/errno.h>`_ and the platform-specific extensions :component_file:`newlib/platform_include/sys/errno.h`.
 
 .. list-table::
     :header-rows: 1
@@ -419,6 +426,14 @@ IP Layer Features
 
 - IPV4-mapped IPV6 addresses are supported
 
+NAPT and Port Forwarding
+++++++++++++++++++++++++
+
+IPV4 network address port translation (NAPT) and port forwarding are supported. However, the enabling of NAPT is limited to a single interface.
+
+- To use NAPT for forwarding packets between two interfaces, it needs to be enabled on the interface connecting to the target network. For example, to enable internet access for Ethernet traffic through the Wi-Fi interface, NAPT must be enabled on the Ethernet interface.
+- Usage of NAPT is demonstrated in :example:`network/vlan_support`.
+
 .. _lwip-custom-hooks:
 
 Customized lwIP Hooks
@@ -446,10 +461,20 @@ This approach may not work for function-like macros, as there is no guarantee th
 
 Alternatively, you can define your function-like macro in a header file which will be pre-included as an lwIP hook file, see :ref:`lwip-custom-hooks`.
 
+.. _lwip-limitations:
+
 Limitations
 ^^^^^^^^^^^
 
+lwIP in ESP-IDF supports thread safety in certain scenarios, but with limitations. It is possible to perform read, write, and close operations from different threads on the same socket simultaneously. However, performing multiple reads or multiple writes from more than one thread on the same socket at the same time is not supported. Applications that require simultaneous reads or writes from multiple threads on the same socket must implement additional synchronization mechanisms, such as locking around socket operations.
+
 ESP-IDF additions to lwIP still suffer from the global DNS limitation, described in :ref:`lwip-dns-limitation`. To address this limitation from application code, the ``FALLBACK_DNS_SERVER_ADDRESS()`` macro can be utilized to define a global DNS fallback server accessible from all interfaces. Alternatively, you have the option to maintain per-interface DNS servers and reconfigure them whenever the default interface changes.
+
+The number of IP addresses returned by network database APIs such as ``getaddrinfo()`` and ``gethostbyname()`` is restricted by the macro ``DNS_MAX_HOST_IP``. By default, the value of this macro is set to 1.
+
+In the implementation of ``getaddrinfo()``, the canonical name is not available. Therefore, the ``ai_canonname`` field of the first returned ``addrinfo`` structure will always refer to the ``nodename`` argument or a string with the same contents.
+
+The ``getaddrinfo()`` system call in lwIP within ESP-IDF has a limitation when using ``AF_UNSPEC``, as it defaults to returning only an IPv4 address in dual stack mode. This can cause issues in IPv6-only networks. To handle this, a workaround involves making two sequential calls to ``getaddrinfo()``: the first with ``AF_INET`` to query for IPv4 addresses, and the second with ``AF_INET6`` to retrieve IPv6 addresses. To provide a more robust solution, the custom ``esp_getaddrinfo()`` function has been added to the lwIP port layer to handle both IPv4 and IPv6 addresses when ``AF_UNSPEC`` is used. The :ref:`CONFIG_LWIP_USE_ESP_GETADDRINFO` option, available when both IPv4 and IPv6 are enabled, controls whether ``esp_getaddrinfo()`` or ``getaddrinfo()`` is used. It is disabled by default.
 
 Calling ``send()`` or ``sendto()`` repeatedly on a UDP socket may eventually fail with ``errno`` equal to ``ENOMEM``. This failure occurs due to the limitations of buffer sizes in the lower-layer network interface drivers. If all driver transmit buffers are full, the UDP transmission will fail. For applications that transmit a high volume of UDP datagrams and aim to avoid any dropped datagrams by the sender, it is advisable to implement error code checking and employ a retransmission mechanism with a short delay.
 
@@ -471,9 +496,7 @@ TCP/IP performance is a complex subject, and performance can be optimized toward
 Maximum Throughput
 ^^^^^^^^^^^^^^^^^^
 
-Espressif tests ESP-IDF TCP/IP throughput using the :example:`wifi/iperf` example in an RF-sealed enclosure.
-
-The :example_file:`wifi/iperf/sdkconfig.defaults` file for the iperf example contains settings known to maximize TCP/IP throughput, usually at the expense of higher RAM usage. To get maximum TCP/IP throughput in an application at the expense of other factors, it is suggested to apply settings from this file into the project sdkconfig.
+Espressif tests ESP-IDF TCP/IP throughput using the iperf test application: https://iperf.fr/, please refer to :ref:`improve-network-speed` for more details about the actual testing and using the optimized configuration.
 
 .. important::
 
@@ -505,6 +528,7 @@ Most lwIP RAM usage is on-demand, as RAM is allocated from the heap as needed. T
 
 - Reducing :ref:`CONFIG_LWIP_MAX_SOCKETS` reduces the maximum number of sockets in the system. This also causes TCP sockets in the ``WAIT_CLOSE`` state to be closed and recycled more rapidly when needed to open a new socket, further reducing peak RAM usage.
 - Reducing :ref:`CONFIG_LWIP_TCPIP_RECVMBOX_SIZE`, :ref:`CONFIG_LWIP_TCP_RECVMBOX_SIZE` and :ref:`CONFIG_LWIP_UDP_RECVMBOX_SIZE` reduce RAM usage at the expense of throughput, depending on usage.
+- Reducing :ref:`CONFIG_LWIP_TCP_ACCEPTMBOX_SIZE` reduce RAM usage by limiting concurrent accepted connections.
 - Reducing :ref:`CONFIG_LWIP_TCP_MSL` and :ref:`CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT` reduces the maximum segment lifetime in the system. This also causes TCP sockets in the ``TIME_WAIT`` and ``FIN_WAIT_2`` states to be closed and recycled more rapidly.
 - Disabling :ref:`CONFIG_LWIP_IPV6` can save about 39 KB for firmware size and 2 KB RAM when the system is powered up and 7 KB RAM when the TCP/IP stack is running. If there is no requirement for supporting IPV6, it can be disabled to save flash and RAM footprint.
 - Disabling :ref:`CONFIG_LWIP_IPV4` can save about 26 KB of firmware size and 600 B RAM on power up and 6 KB RAM when the TCP/IP stack is running. If the local network supports IPv6-only configuration, IPv4 can be disabled to save flash and RAM footprint.

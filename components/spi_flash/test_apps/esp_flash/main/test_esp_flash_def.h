@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -68,7 +68,7 @@
 #define HSPI_PIN_NUM_WP     FSPI_PIN_NUM_WP
 #define HSPI_PIN_NUM_CS     FSPI_PIN_NUM_CS
 
-#elif CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C2
+#elif CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
 #define SPI1_CS_IO          26  //the pin which is usually used by the PSRAM cs
 #define SPI1_HD_IO          27  //the pin which is usually used by the PSRAM hd
 #define SPI1_WP_IO          28  //the pin which is usually used by the PSRAM wp
@@ -88,14 +88,32 @@
 #define HSPI_PIN_NUM_WP     FSPI_PIN_NUM_WP
 #define HSPI_PIN_NUM_CS     FSPI_PIN_NUM_CS
 
-#elif CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32H2
+#elif CONFIG_IDF_TARGET_ESP32H2
 
-#define FSPI_PIN_NUM_MOSI   7
-#define FSPI_PIN_NUM_MISO   2
-#define FSPI_PIN_NUM_CLK    6
-#define FSPI_PIN_NUM_HD     4
-#define FSPI_PIN_NUM_WP     5
-#define FSPI_PIN_NUM_CS     17
+#define FSPI_PIN_NUM_MOSI   5
+#define FSPI_PIN_NUM_MISO   0
+#define FSPI_PIN_NUM_CLK    4
+#define FSPI_PIN_NUM_HD     3
+#define FSPI_PIN_NUM_WP     2
+#define FSPI_PIN_NUM_CS     1
+
+// Just use the same pins for HSPI
+#define HSPI_PIN_NUM_MOSI   FSPI_PIN_NUM_MOSI
+#define HSPI_PIN_NUM_MISO   FSPI_PIN_NUM_MISO
+#define HSPI_PIN_NUM_CLK    FSPI_PIN_NUM_CLK
+#define HSPI_PIN_NUM_HD     FSPI_PIN_NUM_HD
+#define HSPI_PIN_NUM_WP     FSPI_PIN_NUM_WP
+#define HSPI_PIN_NUM_CS     FSPI_PIN_NUM_CS
+
+#elif CONFIG_IDF_TARGET_ESP32P4
+
+// Normal IOMUX pins
+#define FSPI_PIN_NUM_MOSI   8
+#define FSPI_PIN_NUM_MISO   10
+#define FSPI_PIN_NUM_CLK    9
+#define FSPI_PIN_NUM_HD     6
+#define FSPI_PIN_NUM_WP     11
+#define FSPI_PIN_NUM_CS     7
 
 // Just use the same pins for HSPI
 #define HSPI_PIN_NUM_MOSI   FSPI_PIN_NUM_MOSI
@@ -202,11 +220,11 @@ static const char TAG[] = "test_esp_flash";
 #if CONFIG_IDF_TARGET_ESP32
 flashtest_config_t config_list[] = {
     FLASHTEST_CONFIG_COMMON,
-    /* current runner doesn't have a flash on HSPI */
+    /* current runner doesn't have a flash on SPI2_HOST */
     // {
     //     .io_mode = TEST_SPI_READ_MODE,
     //     .freq_mhz = TEST_SPI_SPEED,
-    //     .host_id = HSPI_HOST,
+    //     .host_id = SPI2_HOST,
     //     .cs_id = 0,
     //     // uses GPIO matrix on esp32s2 regardless if FORCE_GPIO_MATRIX
     //     .cs_io_num = HSPI_PIN_NUM_CS,
@@ -215,7 +233,7 @@ flashtest_config_t config_list[] = {
     {
         .io_mode = TEST_SPI_READ_MODE,
         .freq_mhz = TEST_SPI_SPEED,
-        .host_id = VSPI_HOST,
+        .host_id = SPI3_HOST,
         .cs_id = 0,
         .cs_io_num = VSPI_PIN_NUM_CS,
         .input_delay_ns = 0,
@@ -227,7 +245,7 @@ flashtest_config_t config_list[] = {
     {
         .io_mode = TEST_SPI_READ_MODE,
         .freq_mhz = TEST_SPI_SPEED,
-        .host_id = FSPI_HOST,
+        .host_id = SPI2_HOST,
         .cs_id = 0,
         .cs_io_num = FSPI_PIN_NUM_CS,
         .input_delay_ns = 0,
@@ -235,7 +253,7 @@ flashtest_config_t config_list[] = {
     {
         .io_mode = TEST_SPI_READ_MODE,
         .freq_mhz = TEST_SPI_SPEED,
-        .host_id = HSPI_HOST,
+        .host_id = SPI3_HOST,
         .cs_id = 0,
         // uses GPIO matrix on esp32s2 regardless of FORCE_GPIO_MATRIX
         .cs_io_num = HSPI_PIN_NUM_CS,

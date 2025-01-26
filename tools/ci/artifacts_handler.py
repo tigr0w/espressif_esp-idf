@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
-
 import argparse
 import fnmatch
 import glob
@@ -12,6 +11,8 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import urllib3
+from idf_ci_utils import sanitize_job_name
+from idf_pytest.constants import DEFAULT_BUILD_LOG_FILENAME
 from minio import Minio
 
 
@@ -29,29 +30,34 @@ TYPE_PATTERNS_DICT = {
     ArtifactType.MAP_AND_ELF_FILES: [
         '**/build*/bootloader/*.map',
         '**/build*/bootloader/*.elf',
+        '**/build*/esp_tee/*.map',
+        '**/build*/esp_tee/*.elf',
         '**/build*/*.map',
         '**/build*/*.elf',
     ],
     ArtifactType.BUILD_DIR_WITHOUT_MAP_AND_ELF_FILES: [
-        '**/build*/build_log.txt',
+        f'**/build*/{DEFAULT_BUILD_LOG_FILENAME}',
         '**/build*/*.bin',
         '**/build*/bootloader/*.bin',
+        '**/build*/esp_tee/*.bin',
         '**/build*/partition_table/*.bin',
         '**/build*/flasher_args.json',
         '**/build*/flash_project_args',
         '**/build*/config/sdkconfig.json',
+        '**/build*/sdkconfig',
         '**/build*/project_description.json',
-        'list_job_*.txt',
+        'list_job*.txt',
     ],
     ArtifactType.LOGS: [
-        '**/build*/build_log.txt',
+        f'**/build*/{DEFAULT_BUILD_LOG_FILENAME}',
     ],
     ArtifactType.SIZE_REPORTS: [
         '**/build*/size.json',
         'size_info.txt',
     ],
     ArtifactType.JUNIT_REPORTS: [
-        'XUNIT_RESULT.xml',
+        'XUNIT_RESULT*.xml',
+        'build_summary*.xml',
     ],
     ArtifactType.MODIFIED_FILES_AND_COMPONENTS_REPORT: [
         'pipeline.env',
@@ -64,6 +70,23 @@ def getenv(env_var: str) -> str:
         return os.environ[env_var]
     except KeyError as e:
         raise Exception(f'Environment variable {env_var} not set') from e
+
+
+def get_minio_client() -> Minio:
+    return Minio(
+        getenv('IDF_S3_SERVER').replace('https://', ''),
+        access_key=getenv('IDF_S3_ACCESS_KEY'),
+        secret_key=getenv('IDF_S3_SECRET_KEY'),
+        http_client=urllib3.PoolManager(
+            num_pools=10,
+            timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
+            retries=urllib3.Retry(
+                total=5,
+                backoff_factor=0.2,
+                status_forcelist=[500, 502, 503, 504],
+            ),
+        ),
+    )
 
 
 def _download_files(
@@ -131,12 +154,9 @@ def _upload_files(
 
     try:
         if has_file:
-            obj_name = f'{pipeline_id}/{artifact_type.value}/{job_name.split(" ")[0]}/{job_id}.zip'
-            print(f'Created archive file: {job_id}.zip, uploading as {obj_name}')
-
+            obj_name = f'{pipeline_id}/{artifact_type.value}/{sanitize_job_name(job_name)}/{job_id}.zip'
             client.fput_object(getenv('IDF_S3_BUCKET'), obj_name, f'{job_id}.zip')
-            url = client.get_presigned_url('GET', getenv('IDF_S3_BUCKET'), obj_name)
-            print(f'Please download the archive file which includes {artifact_type.value} from {url}')
+            print(f'Created archive file: {job_id}.zip, uploaded as {obj_name}')
     finally:
         os.remove(f'{job_id}.zip')
 
@@ -168,19 +188,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    client = Minio(
-        getenv('IDF_S3_SERVER').replace('https://', ''),
-        access_key=getenv('IDF_S3_ACCESS_KEY'),
-        secret_key=getenv('IDF_S3_SECRET_KEY'),
-        http_client=urllib3.PoolManager(
-            timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
-            retries=urllib3.Retry(
-                total=5,
-                backoff_factor=0.2,
-                status_forcelist=[500, 502, 503, 504],
-            ),
-        ),
-    )
+    client = get_minio_client()
 
     ci_pipeline_id = args.pipeline_id or getenv('CI_PIPELINE_ID')  # required
     if args.action == 'download':
